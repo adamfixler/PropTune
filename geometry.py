@@ -1,0 +1,1 @@
+#Define Prop class, blade parameterisation, Spline interpolation, Blade stations
