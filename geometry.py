@@ -176,7 +176,7 @@ def load_bem(filename, airfoil):
 
     return prop
 
-prop = load_bem("deadelus_MIL_baseline.bem","dae51")
+#prop = load_bem("deadelus_MIL_baseline.bem","dae51")
 
-display_rotor(prop)
+#display_rotor(prop)
 #prop = Propeller(hub_radius=0.1,radius=3, chord=np.ones(5), twist=np.zeros(5),airfoil="dae51",n_blades=2)

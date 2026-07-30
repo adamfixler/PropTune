@@ -88,4 +88,4 @@ def optimise():
     prop_opt = Propeller(hub_radius=prop.hub_radius,radius=prop.radius,chord=chord_opt,twist=twist_opt,airfoil=airfoil,n_blades=2)
     display_rotor(prop_opt)
 
-optimise()
+#optimise()

@@ -49,10 +49,11 @@ class BEMAnalysis:
             # -------------------------------------------------
             # No induction yet
             # -------------------------------------------------
+            a,ap = induction_factors(self,phi)
 
-            Vax = self.velocity
+            Vax = self.velocity * (1 + a)
 
-            Vtan = self.omega * r
+            Vtan = self.omega * r * (1 + ap)
 
             W = np.sqrt(
                 Vax**2 +
@@ -149,3 +150,66 @@ class BEMAnalysis:
             "efficiency": eta,
             "sections": sections,
         }
+
+
+
+def prandtl(self,dr, r, phi):
+    f = self.rotor.n_blades*dr/(2*r*(np.sin(phi)))
+    if (-f > 500): # exp can overflow for very large numbers
+        F = 1.0
+    else:
+        F = 2*np.acos(min(1.0, np.exp(-f)))/np.pi
+        
+    return F
+
+def induction_factors(self, phi):
+    """
+    Calculation of axial and tangential induction factors,
+
+    .. math::
+        a = \\frac{1}{\\kappa - C} \\\\
+        a\' = \\frac{1}{\\kappa\' + C} \\\\
+        \\kappa = \\frac{4F\\sin^2{\\phi}}{\\sigma C_T} \\\\
+        \\kappa\' = \\frac{4F\\sin{\\phi}\\cos{\\phi}}{\\sigma C_Q} \\\\
+        
+    :param float phi: Inflow angle
+    :return: Axial and tangential induction factors
+    :rtype: tuple
+    """
+
+    C = self.C
+    
+    F = self.tip_loss(phi)
+    
+    CT, CQ = self.airfoil_forces(phi)
+    
+    kappa = 4*F*sin(phi)**2/(self.sigma*CT)
+    kappap = 4*F*sin(phi)*cos(phi)/(self.sigma*CQ)
+
+    a = 1.0/(kappa - C)
+    ap = 1.0/(kappap + C)
+    
+    return a, ap
+
+def brute_solve(self, sec, v, omega, n=3600):
+        """ 
+        Solve by a simple brute force procedure, iterating through all
+        possible angles and selecting the one with lowest residual.
+
+        :param Section sec: Section to solve for
+        :param float v: Axial inflow velocity
+        :param float omega: Tangential rotational velocity
+        :param int n: Number of angles to test for, optional
+        :return: Inflow angle with lowest residual
+        :rtype: float
+        """
+        resid = np.zeros(n)
+        phis = np.linspace(-0.9*np.pi,0.9*np.pi,n)
+        for i,phi in enumerate(phis):
+            res = sec.func(phi, v, omega)
+            if not np.isnan(res):
+                resid[i] = res
+            else:
+                resid[i] = 1e30
+        i = np.argmin(abs(resid))
+        return phis[i]
