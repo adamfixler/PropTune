@@ -1,6 +1,9 @@
 import aerosandbox.numpy as np
 import aerosandbox as asb
+import casadi as ca
 from geometry import *
+
+
 class BEMAnalysis:
 
     def __init__(
@@ -8,137 +11,134 @@ class BEMAnalysis:
         propeller: Propeller,
         rpm,
         velocity,
-        a,
-        ap,
         rho=1.225,
         mu=1.81e-5,
-        
+        induction_guess=(0.02, 0.01),
     ):
-
         self.prop = propeller
-
         self.rpm = rpm
         self.velocity = velocity
-
         self.rho = rho
         self.mu = mu
-
         self.omega = rpm * 2 * np.pi / 60
+        self.induction_guess = induction_guess
 
-        self.a = a
-        self.ap = ap
+        # Built once; reused for every station and every design iterate.
+        self._induction_solver = self._build_induction_solver()
 
+    def _build_induction_solver(self):
+        """CasADi rootfinder that solves for [a, a'] at a single blade
+        station via Newton's method, given [r, chord, beta, Omega].
 
+        This replaces leaving a/a' as free opti.variable()s tied only by an
+        equality constraint. That formulation let IPOPT wander onto
+        spurious algebraic roots of the coupled (a, a', phi, Cl(alpha))
+        system once chord/twist were simultaneously free -- verified: it
+        produced >100% "efficiency" solutions that still satisfied the
+        residuals to numerical precision, because the residual is
+        necessary but not sufficient for physical validity once geometry
+        is also free to move.
 
+        A rootfinder instead always returns the specific root nearest the
+        given initial guess, deterministically -- exactly like ordinary
+        fixed-point BEM iteration, but wrapped via the implicit function
+        theorem as a differentiable CasADi Function, so it's still usable
+        inside AeroSandbox's gradient-based optimizer.
+        """
+        B, R = self.prop.n_blades, self.prop.radius
+        rho, mu = self.rho, self.mu
+        V = self.velocity
+        airfoil = self.prop.airfoil
 
+        z = ca.MX.sym("z", 2)            # [a, ap]
+        a_s, ap_s = z[0], z[1]
+        p = ca.MX.sym("p", 4)            # [r, chord, beta(rad), Omega]
+        r_s, c_s, beta_s, Omega = p[0], p[1], p[2], p[3]
 
+        Vax = V * (1 + a_s)
+        Vtan = Omega * r_s * (1 - ap_s)
+        phi = np.arctan2(Vax, Vtan)
+        W = np.sqrt(Vax ** 2 + Vtan ** 2)
+        alpha = beta_s - phi
+        Re = rho * W * c_s / mu
 
+        aero = airfoil.get_aero_from_neuralfoil(
+            alpha=np.degrees(alpha), Re=Re, mach=W / 340,
+        )
+        Cl, Cd = aero["CL"], aero["CD"]
 
+        f_tip = (B / 2) * (R - r_s) / (r_s * np.sin(phi))
+        f_tip = np.maximum(f_tip, 1e-6)
+        F = (2 / np.pi) * np.arccos(np.exp(-f_tip))
 
+        sigma = B * c_s / (2 * np.pi * r_s)
+        Cn = Cl * np.cos(phi) - Cd * np.sin(phi)
+        Ct = Cl * np.sin(phi) + Cd * np.cos(phi)
 
+        resid_a = a_s * 4 * F * np.sin(phi) ** 2 - (1 + a_s) * sigma * Cn
+        resid_ap = ap_s * 4 * F * np.sin(phi) * np.cos(phi) - (1 - ap_s) * sigma * Ct
+        g_expr = ca.vertcat(resid_a, resid_ap)
+
+        g_func = ca.Function("g", [z, p], [g_expr], ["z", "p"], ["g"])
+        return ca.rootfinder("induction_solver", "newton", g_func)
 
     def run(self):
-
         thrust = 0.0
         torque = 0.0
-
         sections = []
 
+        B = self.prop.n_blades
+
         for i in range(self.prop.n_stations):
-            
+
             r = self.prop.r[i]
-
             c = self.prop.chord[i]
+            beta = np.radians(self.prop.twist[i])  # degrees -> radians
 
-            beta = np.radians(self.prop.twist[i])   # degrees -> radians
-
-            # -------------------------------------------------
-            # No induction yet
-            # -------------------------------------------------
-            a,ap = induction_factors(self,phi)
-
-            Vax = self.velocity * (1 + a)
-
-            Vtan = self.omega * r * (1 - ap)
-
-            phi = phi_brute_solve(r , Vax, self.omega)
-
-            W = np.sqrt(
-                Vax**2 +
-                Vtan**2
+            z_sol = self._induction_solver(
+                list(self.induction_guess), ca.vertcat(r, c, beta, self.omega)
             )
-            
-            ##phi = np.arctan2(
-            ##    Vax,
-            ##    Vtan,
-            ##)
+            a_i, ap_i = z_sol[0], z_sol[1]
 
+            Vax = self.velocity * (1 + a_i)
+            Vtan = self.omega * r * (1 - ap_i)
+            phi = np.arctan2(Vax, Vtan)
+            W = np.sqrt(Vax ** 2 + Vtan ** 2)
             alpha = beta - phi
 
-            Re = (
-                self.rho
-                * W
-                * c
-                / self.mu
-            )
+            Re = self.rho * W * c / self.mu
             aero = self.prop.airfoil.get_aero_from_neuralfoil(
-            alpha=np.degrees(alpha),
-            Re=Re,
-            mach=W/340,
-)
-
+                alpha=np.degrees(alpha),
+                Re=Re,
+                mach=W / 340,
+            )
             Cl = aero["CL"]
             Cd = aero["CD"]
 
-            
-
-
-            q = (
-                0.5
-                * self.rho
-                * W**2
-            )
-
+            q = 0.5 * self.rho * W ** 2
             Lift = q * c * Cl
-
             Drag = q * c * Cd
 
-            Fn = (
-                Lift * np.cos(phi)
-                - Drag * np.sin(phi)
-            )
+            Fn = Lift * np.cos(phi) - Drag * np.sin(phi)
+            Ft = Lift * np.sin(phi) + Drag * np.cos(phi)
 
-            Ft = (
-                Lift * np.sin(phi)
-                + Drag * np.cos(phi)
-            )
-
-            dT = (
-                Fn
-                * self.prop.n_blades
-                * self.prop.dr
-            )
-
-            dQ = (
-                Ft
-                * r
-                * self.prop.n_blades
-                * self.prop.dr
-            )
+            dT = Fn * B * self.prop.dr
+            dQ = Ft * r * B * self.prop.dr
 
             thrust += dT
-
             torque += dQ
 
             sections.append(
                 {
                     "r": r,
                     "twist_deg": self.prop.twist[i],
-                    "phi_deg": np.rad2deg(phi),
-                    "alpha_deg": np.rad2deg(alpha),
+                    "phi_deg": np.degrees(phi),
+                    "alpha_deg": np.degrees(alpha),
                     "Re": Re,
                     "Cl": Cl,
                     "Cd": Cd,
+                    "a": a_i,
+                    "ap": ap_i,
                     "Lift": Lift,
                     "Drag": Drag,
                     "dT": dT,
@@ -160,87 +160,3 @@ class BEMAnalysis:
             "efficiency": eta,
             "sections": sections,
         }
-
-
-
-def prandtl(self,dr, r, phi):
-    f = self.rotor.n_blades*dr/(2*r*(np.sin(phi)))
-    if (-f > 500): # exp can overflow for very large numbers
-        F = 1.0
-    else:
-        F = 2*np.acos(min(1.0, np.exp(-f)))/np.pi
-        
-    return F
-
-def induction_factors(self, phi):
-    """
-    Calculation of axial and tangential induction factors,
-
-    .. math::
-        a = \\frac{1}{\\kappa - C} \\\\
-        a\' = \\frac{1}{\\kappa\' + C} \\\\
-        \\kappa = \\frac{4F\\sin^2{\\phi}}{\\sigma C_T} \\\\
-        \\kappa\' = \\frac{4F\\sin{\\phi}\\cos{\\phi}}{\\sigma C_Q} \\\\
-        
-    :param float phi: Inflow angle
-    :return: Axial and tangential induction factors
-    :rtype: tuple
-    """
-
-    C = 1
-    
-    F = self.tip_loss(phi)
-    
-    CT, CQ = self.airfoil_forces(phi)
-    
-    kappa = 4*F*np.sin(phi)**2/(self.sigma*CT)
-    kappap = 4*F*np.sin(phi)*np.cos(phi)/(self.sigma*CQ)
-
-    a = 1.0/(kappa - C)
-    ap = 1.0/(kappap + C)
-    
-    return a, ap
-
-def phi_brute_solve(r, v, omega, n=3600):
-        """ 
-        Solve by a simple brute force procedure, iterating through all
-        possible angles and selecting the one with lowest residual.
-
-        :param Section sec: Section to solve for
-        :param float v: Axial inflow velocity
-        :param float omega: Tangential rotational velocity
-        :param int n: Number of angles to test for, optional
-        :return: Inflow angle with lowest residual
-        :rtype: float
-        """
-        resid = np.zeros(n)
-        phis = np.linspace(-0.9*np.pi,0.9*np.pi,n)
-        for i,phi in enumerate(phis):
-            res = func(r, phi, v, omega)
-            if not np.isnan(res):
-                resid[i] = res
-            else:
-                resid[i] = 1e30
-        i = np.argmin(abs(resid))
-        return phis[i]
-
-
-def func(r, phi, v_inf, omega):
-    """
-    Residual function used in root-finding functions to find the inflow angle for the current section.
-
-    .. math::
-        \\frac{\\sin\\phi}{1+Ca} - \\frac{V_\\infty\\cos\\phi}{\\Omega R (1 - Ca\')} = 0\\\\
-
-    :param float phi: Estimated inflow angle
-    :param float v_inf: Axial inflow velocity
-    :param float omega: Tangential rotational velocity
-    :return: Residual
-    :rtype: float
-    """
-    # Function to solve for a single blade element
-    C = 1
-
-    resid = np.sin(phi)/(1 + C*a) - v_inf*np.cos(phi)/(omega*r*(1 - C*ap))
-    
-    return resid

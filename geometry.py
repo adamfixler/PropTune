@@ -3,6 +3,8 @@ import aerosandbox.numpy as np
 import matplotlib.pyplot as plt
 
 
+
+
 class Propeller:
 
     def __init__(
@@ -23,15 +25,19 @@ class Propeller:
         self.airfoil = asb.Airfoil(airfoil)
         self.n_blades = n_blades
 
-        self.n_stations = chord.shape[0]
+        self.n_stations = chord.shape[0] if hasattr(chord, "shape") else len(chord)
 
-        self.r = np.linspace(
-            hub_radius,
-            radius,
-            self.n_stations
-        )
-
-        self.dr = (radius - hub_radius) / (self.n_stations - 1)
+        # Station centers, NOT node endpoints. A station placed exactly at
+        # r=radius makes the Prandtl tip-loss factor F -> 0 *exactly*, which
+        # degenerates the BEM residual equation to 0==0 there -- it stops
+        # constraining a/a' at all, and a gradient-based optimizer will
+        # happily dump nonphysical induction values into that one station
+        # to fake extra efficiency. Using segment midpoints (matching what
+        # load_bem() already does) keeps every station strictly inside
+        # (hub_radius, radius).
+        nodes = np.linspace(hub_radius, radius, self.n_stations + 1)
+        self.r = 0.5 * (nodes[:-1] + nodes[1:])
+        self.dr = nodes[1] - nodes[0]
 
 
 def to_wing(prop):
@@ -176,7 +182,7 @@ def load_bem(filename, airfoil):
 
     return prop
 
-#prop = load_bem("deadelus_MIL_baseline.bem","dae51")
-
-#display_rotor(prop)
+if __name__ == "__main__":
+    prop = load_bem("deadelus_MIL_baseline.bem","dae51")
+    display_rotor(prop)
 #prop = Propeller(hub_radius=0.1,radius=3, chord=np.ones(5), twist=np.zeros(5),airfoil="dae51",n_blades=2)
