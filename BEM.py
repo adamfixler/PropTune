@@ -8,8 +8,11 @@ class BEMAnalysis:
         propeller: Propeller,
         rpm,
         velocity,
+        a,
+        ap,
         rho=1.225,
         mu=1.81e-5,
+        
     ):
 
         self.prop = propeller
@@ -21,6 +24,9 @@ class BEMAnalysis:
         self.mu = mu
 
         self.omega = rpm * 2 * np.pi / 60
+
+        self.a = a
+        self.ap = ap
 
 
 
@@ -53,17 +59,19 @@ class BEMAnalysis:
 
             Vax = self.velocity * (1 + a)
 
-            Vtan = self.omega * r * (1 + ap)
+            Vtan = self.omega * r * (1 - ap)
+
+            phi = phi_brute_solve(r , Vax, self.omega)
 
             W = np.sqrt(
                 Vax**2 +
                 Vtan**2
             )
-
-            phi = np.arctan2(
-                Vax,
-                Vtan,
-            )
+            
+            ##phi = np.arctan2(
+            ##    Vax,
+            ##    Vtan,
+            ##)
 
             alpha = beta - phi
 
@@ -81,6 +89,8 @@ class BEMAnalysis:
 
             Cl = aero["CL"]
             Cd = aero["CD"]
+
+            
 
 
             q = (
@@ -177,21 +187,21 @@ def induction_factors(self, phi):
     :rtype: tuple
     """
 
-    C = self.C
+    C = 1
     
     F = self.tip_loss(phi)
     
     CT, CQ = self.airfoil_forces(phi)
     
-    kappa = 4*F*sin(phi)**2/(self.sigma*CT)
-    kappap = 4*F*sin(phi)*cos(phi)/(self.sigma*CQ)
+    kappa = 4*F*np.sin(phi)**2/(self.sigma*CT)
+    kappap = 4*F*np.sin(phi)*np.cos(phi)/(self.sigma*CQ)
 
     a = 1.0/(kappa - C)
     ap = 1.0/(kappap + C)
     
     return a, ap
 
-def brute_solve(self, sec, v, omega, n=3600):
+def phi_brute_solve(r, v, omega, n=3600):
         """ 
         Solve by a simple brute force procedure, iterating through all
         possible angles and selecting the one with lowest residual.
@@ -206,10 +216,31 @@ def brute_solve(self, sec, v, omega, n=3600):
         resid = np.zeros(n)
         phis = np.linspace(-0.9*np.pi,0.9*np.pi,n)
         for i,phi in enumerate(phis):
-            res = sec.func(phi, v, omega)
+            res = func(r, phi, v, omega)
             if not np.isnan(res):
                 resid[i] = res
             else:
                 resid[i] = 1e30
         i = np.argmin(abs(resid))
         return phis[i]
+
+
+def func(r, phi, v_inf, omega):
+    """
+    Residual function used in root-finding functions to find the inflow angle for the current section.
+
+    .. math::
+        \\frac{\\sin\\phi}{1+Ca} - \\frac{V_\\infty\\cos\\phi}{\\Omega R (1 - Ca\')} = 0\\\\
+
+    :param float phi: Estimated inflow angle
+    :param float v_inf: Axial inflow velocity
+    :param float omega: Tangential rotational velocity
+    :return: Residual
+    :rtype: float
+    """
+    # Function to solve for a single blade element
+    C = 1
+
+    resid = np.sin(phi)/(1 + C*a) - v_inf*np.cos(phi)/(omega*r*(1 - C*ap))
+    
+    return resid
