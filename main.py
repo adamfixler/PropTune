@@ -1,7 +1,7 @@
 import aerosandbox as asb
 import aerosandbox.numpy as np
 
-from geometry import Propeller, load_bem, display_rotor
+from geometry import Propeller, load_bem, display_rotor, export_airfoil_dat, to_wing
 from BEM import BEMAnalysis
 
 # ------------------------------------------------------------------
@@ -114,6 +114,16 @@ opti.subject_to(results["efficiency"] <= 1.0)  # cheap physical sanity net
 for sec in results["sections"]:
     opti.subject_to(sec["alpha_deg"] <= 10)
     opti.subject_to(sec["alpha_deg"] >= -4)
+    # NeuralFoil reports its own analysis_confidence alongside CL/CD, from
+    # the same differentiable computation graph -- surveyed across this
+    # design's actual (alpha, Re) envelope, confidence is consistently
+    # 0.94-0.99 for alpha >= -2 deg, but drops to 0.43-0.82 at alpha=-4 deg
+    # (worse at low Re) -- meaning the alpha bound above was letting the
+    # optimizer use a region NeuralFoil itself doesn't trust much. This
+    # constraint keeps every station in the region NeuralFoil is actually
+    # confident in, tightening things exactly where the alpha bound alone
+    # wasn't catching it, without hand-picking a stricter alpha cutoff.
+    opti.subject_to(sec["analysis_confidence"] >= 0.9)
 
 # ------------------------------------------------------------------
 # Objective: maximize efficiency, softly penalized for jaggedness
@@ -171,3 +181,35 @@ prop_result = Propeller(
     n_blades=n_blades,
 )
 display_rotor(prop_result)
+
+# ------------------------------------------------------------------
+# Export for XFLR5, using AeroSandbox's own native exporter rather than a
+# hand-rolled XML generator (asb.Airplane.export_XFLR5_xml). Still need
+# the separate airfoil .dat file, though: XFLR5 plane files reference
+# airfoils by NAME only (this exporter uses xsec.airfoil.name), they
+# don't embed coordinates -- import dae51.dat into XFLR5's own airfoil
+# database under the name "DAE51" BEFORE opening the plane XML, or it
+# won't be able to resolve the section airfoils.
+#
+# Also worth remembering: XFLR5's own LLT/VLM analysis on this wing
+# treats it as a static lifting surface in uniform flow, not a rotating
+# blade -- it won't reproduce the BEM results from this project.
+# ------------------------------------------------------------------
+export_airfoil_dat(prop_result.airfoil, "dae51.dat", name=prop_result.airfoil.name)
+
+blade_wing = to_wing(prop_result)
+blade_wing.name = "Blade"
+airplane = asb.Airplane(name="Optimized HPA Prop Blade", wings=[blade_wing])
+airplane.export_XFLR5_xml("optimized_prop_blade.xml")
+
+# ------------------------------------------------------------------
+# CAD export, also via AeroSandbox's native exporter rather than a
+# hand-rolled generator (asb.Airplane.export_cadquery_geometry). Produces
+# a real solid-body STEP file, openable in any CAD package (Fusion 360,
+# SolidWorks, FreeCAD, etc.) -- this one's self-contained, unlike the
+# XFLR5 export, since STEP embeds the full airfoil geometry directly
+# rather than referencing it by name from an external database.
+# ------------------------------------------------------------------
+airplane.export_cadquery_geometry("optimized_prop_blade.step")
+
+print("\nExported: dae51.dat, optimized_prop_blade.xml, optimized_prop_blade.step")

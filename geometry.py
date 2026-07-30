@@ -3,8 +3,6 @@ import aerosandbox.numpy as np
 import matplotlib.pyplot as plt
 
 
-
-
 class Propeller:
 
     def __init__(
@@ -38,6 +36,26 @@ class Propeller:
         nodes = np.linspace(hub_radius, radius, self.n_stations + 1)
         self.r = 0.5 * (nodes[:-1] + nodes[1:])
         self.dr = nodes[1] - nodes[0]
+
+
+def export_airfoil_dat(airfoil: asb.Airfoil, filepath, name=None):
+    """Export airfoil coordinates as a Selig-format .dat file (name header,
+    then x,y pairs from trailing edge over the top to the leading edge and
+    back along the bottom).
+
+    Import this into XFLR5's airfoil database FIRST (Direct Foil Design ->
+    File -> Open, or drag-and-drop the .dat) under the exact same name as
+    the Airfoil object passed to to_wing()/export via
+    asb.Airplane.export_XFLR5_xml() -- XFLR5 plane files reference airfoils
+    by name, they don't embed coordinates, so the wing XML is unusable in
+    XFLR5 until this airfoil exists in its database under a matching name.
+    """
+    name = name or airfoil.name
+    coords = airfoil.coordinates
+    with open(filepath, "w") as f:
+        f.write(f"{name}\n")
+        for x, y in coords:
+            f.write(f"  {float(x):.6f}  {float(y):.6f}\n")
 
 
 def to_wing(prop):

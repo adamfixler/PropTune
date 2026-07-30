@@ -114,6 +114,7 @@ class BEMAnalysis:
             )
             Cl = aero["CL"]
             Cd = aero["CD"]
+            analysis_confidence = aero["analysis_confidence"]
 
             q = 0.5 * self.rho * W ** 2
             Lift = q * c * Cl
@@ -137,6 +138,7 @@ class BEMAnalysis:
                     "Re": Re,
                     "Cl": Cl,
                     "Cd": Cd,
+                    "analysis_confidence": analysis_confidence,
                     "a": a_i,
                     "ap": ap_i,
                     "Lift": Lift,
