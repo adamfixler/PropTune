@@ -23,7 +23,7 @@ class Propeller:
         self.airfoil = asb.Airfoil(airfoil)
         self.n_blades = n_blades
 
-        self.n_stations = len(chord)
+        self.n_stations = chord.shape[0]
 
         self.r = np.linspace(
             hub_radius,

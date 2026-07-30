@@ -23,6 +23,14 @@ class BEMAnalysis:
         self.omega = rpm * 2 * np.pi / 60
 
 
+
+
+
+
+
+
+
+
     def run(self):
 
         thrust = 0.0
@@ -36,7 +44,7 @@ class BEMAnalysis:
 
             c = self.prop.chord[i]
 
-            beta = np.deg2rad(self.prop.twist[i])   # degrees -> radians
+            beta = np.radians(self.prop.twist[i])   # degrees -> radians
 
             # -------------------------------------------------
             # No induction yet
@@ -65,13 +73,13 @@ class BEMAnalysis:
                 / self.mu
             )
             aero = self.prop.airfoil.get_aero_from_neuralfoil(
-            alpha=np.rad2deg(alpha),
+            alpha=np.degrees(alpha),
             Re=Re,
             mach=W/340,
 )
 
-            Cl = aero["CL"].item()
-            Cd = aero["CD"].item()
+            Cl = aero["CL"]
+            Cd = aero["CD"]
 
 
             q = (
