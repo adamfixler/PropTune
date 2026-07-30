@@ -1,103 +1,88 @@
-import aerosandbox as asb
 import aerosandbox.numpy as np
-
-
+import aerosandbox as asb
+from geometry import *
 class BEMAnalysis:
 
     def __init__(
         self,
-        propeller,
+        propeller: Propeller,
         rpm,
         velocity,
         rho=1.225,
         mu=1.81e-5,
     ):
+
         self.prop = propeller
 
         self.rpm = rpm
-        self.omega = rpm * 2 * np.pi / 60
+        self.velocity = velocity
 
-        self.V = velocity
         self.rho = rho
         self.mu = mu
 
+        self.omega = rpm * 2 * np.pi / 60
+
+
     def run(self):
 
-        r = self.prop.r
-        c = self.prop.chord
-        beta = self.prop.twist
+        thrust = 0.0
+        torque = 0.0
 
-        dr = np.diff(r)
+        sections = []
 
-        dr = np.concatenate([
-            dr,
-            np.array([dr[-1]])
-        ])
+        for i in range(self.prop.n_stations):
+            
+            r = self.prop.r[i]
 
-        thrust = 0
-        torque = 0
+            c = self.prop.chord[i]
 
-        sectional = []
+            beta = np.deg2rad(self.prop.twist[i])   # degrees -> radians
 
-        for i in range(len(r)):
+            # -------------------------------------------------
+            # No induction yet
+            # -------------------------------------------------
 
-            Ri = r[i]
+            Vax = self.velocity
 
-            chord = c[i]
-
-            twist = beta[i]
-
-            # -------------------------------------
-            # No induction (initial implementation)
-            # -------------------------------------
-
-            Vax = self.V
-
-            Vtan = self.omega * Ri
+            Vtan = self.omega * r
 
             W = np.sqrt(
-                Vax ** 2 +
-                Vtan ** 2
+                Vax**2 +
+                Vtan**2
             )
 
-            phi = np.arctan(
-                Vax / Vtan
+            phi = np.arctan2(
+                Vax,
+                Vtan,
             )
 
-            alpha = twist - phi
+            alpha = beta - phi
 
             Re = (
                 self.rho
                 * W
-                * chord
+                * c
                 / self.mu
             )
+            aero = self.prop.airfoil.get_aero_from_neuralfoil(
+            alpha=np.rad2deg(alpha),
+            Re=Re,
+            mach=W/340,
+)
 
-            Cl = self.prop.airfoil.CL_function(
-                alpha,
-                Re
-            )
+            Cl = aero["CL"].item()
+            Cd = aero["CD"].item()
 
-            Cd = self.prop.airfoil.CD_function(
-                alpha,
-                Re
-            )
 
-            Lift = (
+            q = (
                 0.5
                 * self.rho
-                * W ** 2
-                * chord
-                * Cl
+                * W**2
             )
 
-            Drag = (
-                0.5
-                * self.rho
-                * W ** 2
-                * chord
-                * Cd
-            )
+            Lift = q * c * Cl
+
+            Drag = q * c * Cd
 
             Fn = (
                 Lift * np.cos(phi)
@@ -112,39 +97,47 @@ class BEMAnalysis:
             dT = (
                 Fn
                 * self.prop.n_blades
-                * dr[i]
+                * self.prop.dr
             )
 
             dQ = (
                 Ft
-                * Ri
+                * r
                 * self.prop.n_blades
-                * dr[i]
+                * self.prop.dr
             )
 
             thrust += dT
+
             torque += dQ
 
-            sectional.append(
-                dict(
-                    r=Ri,
-                    alpha=alpha,
-                    Re=Re,
-                    Cl=Cl,
-                    Cd=Cd,
-                    dT=dT,
-                    dQ=dQ,
-                )
+            sections.append(
+                {
+                    "r": r,
+                    "twist_deg": self.prop.twist[i],
+                    "phi_deg": np.rad2deg(phi),
+                    "alpha_deg": np.rad2deg(alpha),
+                    "Re": Re,
+                    "Cl": Cl,
+                    "Cd": Cd,
+                    "Lift": Lift,
+                    "Drag": Drag,
+                    "dT": dT,
+                    "dQ": dQ,
+                }
             )
 
         power = torque * self.omega
 
-        eta = thrust * self.V / power
+        if self.velocity > 0:
+            eta = thrust * self.velocity / power
+        else:
+            eta = 0
 
-        return dict(
-            thrust=thrust,
-            torque=torque,
-            power=power,
-            efficiency=eta,
-            sections=sectional,
-        )
+        return {
+            "thrust": thrust,
+            "torque": torque,
+            "power": power,
+            "efficiency": eta,
+            "sections": sections,
+        }
