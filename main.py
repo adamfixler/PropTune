@@ -1,7 +1,7 @@
 import aerosandbox as asb
 import aerosandbox.numpy as np
 
-from geometry import Propeller, load_bem, display_rotor, export_airfoil_dat, to_wing
+from geometry import Propeller, load_bem, display_rotor, export_airfoil_dat, export_qblade_bld, to_wing
 from BEM import BEMAnalysis
 
 # ------------------------------------------------------------------
@@ -37,7 +37,7 @@ T_required = 28.0   # N required cruise thrust
 # un-batched, so optimizing at full resolution builds an enormous combined
 # graph and IPOPT's Hessian evaluation runs out of memory. 10-20 stations
 # is standard BEM design resolution anyway.
-N = 15
+N = 10
 
 if USE_BEM_FILE:
     baseline = load_bem(BEM_FILENAME, airfoil=airfoil)
@@ -144,11 +144,40 @@ for sec in results["sections"]:
 chord_scale = max_chord if not USE_BEM_FILE else np.max(chord_guess)
 twist_scale = 10.0  # degrees -- a "reasonable" per-station twist step
 
-d_chord = (chord[1:] - chord[:-1]) / chord_scale
-d_twist = (twist[1:] - twist[:-1]) / twist_scale
-smoothness_penalty = np.sum(d_chord ** 2 + d_twist ** 2) / (N - 1)
+# Riemann-sum approximation of integral[(dchord/dr)^2 + (dtwist/dr)^2] dr
+# along the span, each normalized by a characteristic scale. Dividing by
+# the actual radial spacing (not just the adjacent-index difference)
+# makes this converge to the SAME value for a fixed underlying blade
+# shape regardless of how many stations N you use -- the previous version
+# used raw (chord[i+1]-chord[i]) with no dr normalization, so it shrank by
+# roughly 1/N^2 as N grew (stations get physically closer together), and
+# smoothness_weight quietly stopped doing anything at higher N.
+dr_seg = r_stations[1:] - r_stations[:-1]
+d_chord_dr = (chord[1:] - chord[:-1]) / dr_seg / chord_scale
+d_twist_dr = (twist[1:] - twist[:-1]) / dr_seg / twist_scale
+smoothness_penalty = np.sum((d_chord_dr ** 2 + d_twist_dr ** 2) * dr_seg)
 
-smoothness_weight = 0.3  # raise for a smoother/less jagged blade, lower to allow more shape freedom
+smoothness_weight = 0.0025  # raise for a smoother/less jagged blade, lower to allow more shape freedom
+
+# Hard per-segment bounds, in addition to the soft penalty above. Unlike
+# a hard bound on the aggregate smoothness_penalty sum, this guarantees
+# NO individual segment exceeds the limit -- one bad transition can't
+# hide behind otherwise-smooth neighbors. Values are in real physical
+# units (max chord/twist change per meter of span), so they're tied to
+# something meaningful (mold/layup/manufacturing tolerance) rather than
+# being an arbitrary dimensionless number to tune by trial. Defaults set
+# a bit above what the optimizer already found on its own (~0.30 m/m
+# chord, ~80 deg/m twist) -- loose enough not to fight the soft penalty
+# above, but a real ceiling against any future degenerate configuration.
+max_chord_rate = 0.4    # m of chord change per m of span
+max_twist_rate = 90.0   # deg of twist change per m of span
+
+chord_rate = (chord[1:] - chord[:-1]) / dr_seg
+twist_rate = (twist[1:] - twist[:-1]) / dr_seg
+opti.subject_to(chord_rate <= max_chord_rate)
+opti.subject_to(chord_rate >= -max_chord_rate)
+opti.subject_to(twist_rate <= max_twist_rate)
+opti.subject_to(twist_rate >= -max_twist_rate)
 
 opti.minimize(-results["efficiency"] + smoothness_weight * smoothness_penalty)
 
@@ -213,3 +242,13 @@ airplane.export_XFLR5_xml("optimized_prop_blade.xml")
 airplane.export_cadquery_geometry("optimized_prop_blade.step")
 
 print("\nExported: dae51.dat, optimized_prop_blade.xml, optimized_prop_blade.step")
+
+# ------------------------------------------------------------------
+# Export for QBlade. Same dae51.dat airfoil file works for QBlade too
+# (it accepts plain x,y .dat airfoil import directly). polar_filename
+# here is a placeholder -- see export_qblade_bld()'s docstring for the
+# recommended workflow to generate a real, full-360-degree .plr polar
+# inside QBlade itself before this blade definition is usable there.
+# ------------------------------------------------------------------
+export_qblade_bld(prop_result, "optimized_prop.bld", polar_filename="dae51_polar.plr")
+print("Exported: optimized_prop.bld  (edit POLAR_FILE once you've generated a real polar in QBlade)")

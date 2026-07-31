@@ -58,6 +58,58 @@ def export_airfoil_dat(airfoil: asb.Airfoil, filepath, name=None):
             f.write(f"  {float(x):.6f}  {float(y):.6f}\n")
 
 
+def export_qblade_bld(prop, filepath, name="Optimized_HPA_Prop",
+                       polar_filename="dae51_polar.plr"):
+    """Export the blade geometry as a QBlade .bld file (confirmed real
+    format, from QBlade's own documentation -- 2.0.9.x series).
+
+    IMPORTANT: this only covers geometry (POS/CHORD/TWIST/offsets). QBlade
+    also needs a .plr polar file per station, covering the FULL 360 degree
+    alpha range (via QBlade's own Viterna/Montgomery extrapolation) -- this
+    project's NeuralFoil-based BEM never computed that (we deliberately
+    stayed in a narrow, well-attached alpha band), so `polar_filename` here
+    is a PLACEHOLDER. Generate the real polar inside QBlade itself:
+      1. Import the airfoil .dat (see export_airfoil_dat) into QBlade's
+         Airfoil module.
+      2. Run QBlade's Direct Analysis (XFoil-linked) at your design's
+         Reynolds numbers, then use Polar Extrapolation (Viterna) to get
+         full 360-degree coverage.
+      3. Either rename that polar to match `polar_filename`, or just
+         re-enter these station values directly into QBlade's Blade
+         Design table (only ~15 rows) and pick the real polar there.
+
+    Twist here is measured about the leading edge (x/c=0), matching this
+    project's to_wing() convention -- hence TAXIS=0.0 for every station,
+    not the mid-chord/quarter-chord value you'd see in some example files.
+    """
+    import datetime
+    now = datetime.datetime.now()
+
+    lines = [
+        "----------------------------------------QBlade Blade Definition File------------------------------------------------",
+        "Generated with : AeroSandbox HPA propeller optimizer (export_qblade_bld)",
+        "Archive Format: 310002",
+        f"Time : {now.strftime('%H:%M:%S')}",
+        f"Date : {now.strftime('%d.%m.%Y')}",
+        "----------------------------------------Object Name-----------------------------------------------------------------",
+        f"{name} OBJECTNAME - the name of the blade object",
+        "----------------------------------------Parameters------------------------------------------------------------------",
+        "HAWT ROTORTYPE - the rotor type",
+        f"{prop.n_blades} NUMBLADES - number of blades",
+        "----------------------------------------Blade Data------------------------------------------------------------------",
+        "POS [m]  CHORD [m]  TWIST [deg]  OFFSET_X [m]  OFFSET_Y [m]  TAXIS [-]  POLAR_FILE",
+    ]
+
+    for i in range(prop.n_stations):
+        r = float(prop.r[i])
+        c = float(prop.chord[i])
+        t = float(prop.twist[i])
+        lines.append(f"{r:.4f}  {c:.4f}  {t:.4f}  0.0000  0.0000  0.0000  {polar_filename}")
+
+    with open(filepath, "w") as f:
+        f.write("\n".join(lines) + "\n")
+
+
 def to_wing(prop):
 
     xsecs = []

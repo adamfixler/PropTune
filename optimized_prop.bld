@@ -1,0 +1,22 @@
+----------------------------------------QBlade Blade Definition File------------------------------------------------
+Generated with : AeroSandbox HPA propeller optimizer (export_qblade_bld)
+Archive Format: 310002
+Time : 13:42:00
+Date : 31.07.2026
+----------------------------------------Object Name-----------------------------------------------------------------
+Optimized_HPA_Prop OBJECTNAME - the name of the blade object
+----------------------------------------Parameters------------------------------------------------------------------
+HAWT ROTORTYPE - the rotor type
+2 NUMBLADES - number of blades
+----------------------------------------Blade Data------------------------------------------------------------------
+POS [m]  CHORD [m]  TWIST [deg]  OFFSET_X [m]  OFFSET_Y [m]  TAXIS [-]  POLAR_FILE
+0.2494  0.1320  73.7210  0.0000  0.0000  0.0000  dae51_polar.plr
+0.4042  0.1406  67.9861  0.0000  0.0000  0.0000  dae51_polar.plr
+0.5590  0.1449  62.3772  0.0000  0.0000  0.0000  dae51_polar.plr
+0.7138  0.1466  56.2876  0.0000  0.0000  0.0000  dae51_polar.plr
+0.8686  0.1466  50.3025  0.0000  0.0000  0.0000  dae51_polar.plr
+1.0234  0.1405  45.0806  0.0000  0.0000  0.0000  dae51_polar.plr
+1.1782  0.1263  40.8184  0.0000  0.0000  0.0000  dae51_polar.plr
+1.3330  0.1035  37.4672  0.0000  0.0000  0.0000  dae51_polar.plr
+1.4878  0.0696  35.0615  0.0000  0.0000  0.0000  dae51_polar.plr
+1.6426  0.0100  34.1817  0.0000  0.0000  0.0000  dae51_polar.plr
