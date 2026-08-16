@@ -123,8 +123,8 @@ class BEMAnalysis:
             Fn = Lift * np.cos(phi) - Drag * np.sin(phi)
             Ft = Lift * np.sin(phi) + Drag * np.cos(phi)
 
-            dT = Fn * B * self.prop.dr
-            dQ = Ft * r * B * self.prop.dr
+            dT = Fn * B * self.prop.dr[i]
+            dQ = Ft * r * B * self.prop.dr[i]
 
             thrust += dT
             torque += dQ
@@ -151,7 +151,14 @@ class BEMAnalysis:
         power = torque * self.omega
 
         if self.velocity > 0:
-            eta = thrust * self.velocity / power
+            # power can be ~0 (or transiently negative) at early/degenerate
+            # optimizer iterates even with velocity > 0 -- guard the
+            # denominator so eta doesn't blow up to inf/NaN and destabilize
+            # IPOPT. np.maximum (not a Python if) keeps this differentiable
+            # for the symbolic CasADi power expression built during
+            # optimization -- same pattern as the f_tip clamp above.
+            power_safe = np.maximum(power, 1e-6)
+            eta = thrust * self.velocity / power_safe
         else:
             eta = 0
 

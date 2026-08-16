@@ -35,7 +35,11 @@ class Propeller:
         # (hub_radius, radius).
         nodes = np.linspace(hub_radius, radius, self.n_stations + 1)
         self.r = 0.5 * (nodes[:-1] + nodes[1:])
-        self.dr = nodes[1] - nodes[0]
+        # Per-station segment width, not a single scalar -- keeps this
+        # array-shaped like load_bem()'s (potentially non-uniform) dr, so
+        # BEM.py can index it per station regardless of which seed built
+        # the Propeller.
+        self.dr = np.diff(nodes)
 
 
 def export_airfoil_dat(airfoil: asb.Airfoil, filepath, name=None):
@@ -175,6 +179,9 @@ def load_bem(filename, airfoil):
             table_start = i + 1
             break
 
+    if n_blades is None:
+        raise RuntimeError("Couldn't find Num_Blade in .bem file.")
+
     if diameter is None:
         raise RuntimeError("Couldn't find Diameter in .bem file.")
 
@@ -246,9 +253,11 @@ def load_bem(filename, airfoil):
     prop.r = r
     prop.n_stations = len(r)
 
-    # Variable element spacing (more general than assuming uniform spacing)
-    dr = np.diff(r_nodes)
-    prop.dr = np.mean(dr)
+    # Variable element spacing (more general than assuming uniform spacing).
+    # One dr per station (len(r_nodes)-1 == len(r)), not a single averaged
+    # scalar -- BEM.py indexes this per station so each station's true
+    # segment width is used in its own thrust/torque integral.
+    prop.dr = np.diff(r_nodes)
 
     return prop
 

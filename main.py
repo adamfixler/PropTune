@@ -46,7 +46,10 @@ if USE_BEM_FILE:
     n_blades = baseline.n_blades
 
     r_stations = np.linspace(baseline.r[0], baseline.r[-1], N)
-    dr = r_stations[1] - r_stations[0]
+    # One dr per station (uniform here, but array-shaped) so it indexes the
+    # same way as the non-uniform dr load_bem() itself produces -- BEM.py
+    # indexes prop.dr per station regardless of which seed built the prop.
+    dr = np.full(N, r_stations[1] - r_stations[0])
     chord_guess = np.interp(r_stations, baseline.r, baseline.chord)
     twist_guess = np.interp(r_stations, baseline.r, baseline.twist)
 
@@ -58,8 +61,16 @@ else:
     n_blades = 2
     max_chord = 8.3 * 0.0254   # 8.3 in -> m
 
-    r_stations = np.linspace(hub_radius, radius, N)
-    dr = r_stations[1] - r_stations[0]
+    # Station centers, NOT node endpoints -- mirrors Propeller.__init__'s
+    # own midpoint construction. linspace(hub_radius, radius, N) would put
+    # a station exactly at r=radius (and one at r=hub_radius), which zeros
+    # the Prandtl tip-loss factor F there and degenerates that station's
+    # BEM residual to 0==0, letting the optimizer dump nonphysical
+    # induction values into it to fake extra efficiency. Every station
+    # here stays strictly inside (hub_radius, radius).
+    nodes = np.linspace(hub_radius, radius, N + 1)
+    r_stations = 0.5 * (nodes[:-1] + nodes[1:])
+    dr = np.diff(nodes)
 
     # Linear taper as an initial guess only -- the optimizer reshapes this.
     # Peaks near max_chord a bit outboard of the root, tapers to a modest
