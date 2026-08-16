@@ -128,9 +128,9 @@ subject to
 
 $$T = T_{required} \qquad \eta \le 1 \qquad \alpha_{min} \le \alpha_i \le \alpha_{max} \qquad \text{confidence}_i \ge c_{min}$$
 
-$$\left|\frac{\Delta\text{chord}}{\Delta r}\right| \le \text{max\_chord\_rate} \qquad \left|\frac{\Delta\text{twist}}{\Delta r}\right| \le \text{max\_twist\_rate}$$
+$$\left|\frac{\Delta\text{chord}}{\Delta r}\right| \le \text{max chord rate} \qquad \left|\frac{\Delta\text{twist}}{\Delta r}\right| \le \text{max twist rate}$$
 
-where the smoothness penalty $S$ is a Riemann-sum approximation of $\int\!\left[\left(\frac{d\,\text{chord}/dr}{\text{chord\_scale}}\right)^2 + \left(\frac{d\,\text{twist}/dr}{\text{twist\_scale}}\right)^2\right] dr$ along the span — penalizing jagged station-to-station steps without biasing the design toward any particular reference taper.
+where the smoothness penalty $S$ is a Riemann-sum approximation of $\int\!\left[\left(\frac{d\,\text{chord}/dr}{\text{chord scale}}\right)^2 + \left(\frac{d\,\text{twist}/dr}{\text{twist scale}}\right)^2\right] dr$ along the span — penalizing jagged station-to-station steps without biasing the design toward any particular reference taper.
 
 ## Outputs
 
