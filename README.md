@@ -78,7 +78,7 @@ At each radial station $r$, with axial and swirl induction factors $a$ and $a'$,
 
 $$V_{ax} = V(1+a) \qquad V_{tan} = \Omega r (1-a')$$
 
-$$\phi = \operatorname{atan2}(V_{ax},\, V_{tan}) \qquad W = \sqrt{V_{ax}^2 + V_{tan}^2}$$
+$$\phi = \text{atan2}(V_{ax},\, V_{tan}) \qquad W = \sqrt{V_{ax}^2 + V_{tan}^2}$$
 
 $$\alpha = \beta - \phi \qquad Re = \frac{\rho\, W\, c}{\mu}$$
 
