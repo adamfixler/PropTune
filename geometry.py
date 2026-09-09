@@ -1,3 +1,5 @@
+import csv
+
 import aerosandbox as asb
 import aerosandbox.numpy as np
 import matplotlib.pyplot as plt
@@ -25,20 +27,15 @@ class Propeller:
 
         self.n_stations = chord.shape[0] if hasattr(chord, "shape") else len(chord)
 
-        # Station centers, NOT node endpoints. A station placed exactly at
-        # r=radius makes the Prandtl tip-loss factor F -> 0 *exactly*, which
-        # degenerates the BEM residual equation to 0==0 there -- it stops
-        # constraining a/a' at all, and a gradient-based optimizer will
-        # happily dump nonphysical induction values into that one station
-        # to fake extra efficiency. Using segment midpoints (matching what
-        # load_bem() already does) keeps every station strictly inside
+        # Station centers, not node endpoints. A station placed exactly at
+        # r=radius would zero the Prandtl tip-loss factor there and
+        # degenerate the BEM residual, letting the optimizer exploit it.
+        # Segment midpoints keep every station strictly inside
         # (hub_radius, radius).
         nodes = np.linspace(hub_radius, radius, self.n_stations + 1)
         self.r = 0.5 * (nodes[:-1] + nodes[1:])
-        # Per-station segment width, not a single scalar -- keeps this
-        # array-shaped like load_bem()'s (potentially non-uniform) dr, so
-        # BEM.py can index it per station regardless of which seed built
-        # the Propeller.
+        # Per-station segment width (array, not a single scalar) so BEM.py
+        # can index it per station regardless of which seed built the prop.
         self.dr = np.diff(nodes)
 
 
@@ -47,7 +44,7 @@ def export_airfoil_dat(airfoil: asb.Airfoil, filepath, name=None):
     then x,y pairs from trailing edge over the top to the leading edge and
     back along the bottom).
 
-    Import this into XFLR5's airfoil database FIRST (Direct Foil Design ->
+    Import this into XFLR5's airfoil database first (Direct Foil Design ->
     File -> Open, or drag-and-drop the .dat) under the exact same name as
     the Airfoil object passed to to_wing()/export via
     asb.Airplane.export_XFLR5_xml() -- XFLR5 plane files reference airfoils
@@ -64,27 +61,21 @@ def export_airfoil_dat(airfoil: asb.Airfoil, filepath, name=None):
 
 def export_qblade_bld(prop, filepath, name="Optimized_HPA_Prop",
                        polar_filename="dae51_polar.plr"):
-    """Export the blade geometry as a QBlade .bld file (confirmed real
-    format, from QBlade's own documentation -- 2.0.9.x series).
+    """Export the blade geometry as a QBlade .bld file (2.0.9.x format).
 
-    IMPORTANT: this only covers geometry (POS/CHORD/TWIST/offsets). QBlade
-    also needs a .plr polar file per station, covering the FULL 360 degree
-    alpha range (via QBlade's own Viterna/Montgomery extrapolation) -- this
-    project's NeuralFoil-based BEM never computed that (we deliberately
-    stayed in a narrow, well-attached alpha band), so `polar_filename` here
-    is a PLACEHOLDER. Generate the real polar inside QBlade itself:
+    Covers geometry only (POS/CHORD/TWIST/offsets). QBlade also needs a
+    .plr polar file per station, covering the full 360-degree alpha range
+    -- `polar_filename` here is a PLACEHOLDER. To generate a real one:
       1. Import the airfoil .dat (see export_airfoil_dat) into QBlade's
          Airfoil module.
       2. Run QBlade's Direct Analysis (XFoil-linked) at your design's
-         Reynolds numbers, then use Polar Extrapolation (Viterna) to get
-         full 360-degree coverage.
-      3. Either rename that polar to match `polar_filename`, or just
-         re-enter these station values directly into QBlade's Blade
-         Design table (only ~15 rows) and pick the real polar there.
+         Reynolds numbers, then Polar Extrapolation (Viterna) for full
+         360-degree coverage.
+      3. Either rename that polar to match `polar_filename`, or re-enter
+         these station values directly into QBlade's Blade Design table.
 
-    Twist here is measured about the leading edge (x/c=0), matching this
-    project's to_wing() convention -- hence TAXIS=0.0 for every station,
-    not the mid-chord/quarter-chord value you'd see in some example files.
+    Twist is measured about the leading edge (x/c=0), matching this
+    project's to_wing() convention -- hence TAXIS=0.0 for every station.
     """
     import datetime
     now = datetime.datetime.now()
@@ -112,6 +103,37 @@ def export_qblade_bld(prop, filepath, name="Optimized_HPA_Prop",
 
     with open(filepath, "w") as f:
         f.write("\n".join(lines) + "\n")
+
+
+def export_prop_csv(filepath, r, dr, chord, twist, radius, hub_radius, n_blades,
+                     airfoil_name, rpm, velocity, rho, mu):
+    """Export a propeller's per-station geometry and its operating point/
+    environment to a plain CSV, so a standalone script (see
+    verify_xfoil.py) can re-load the exact design without re-running the
+    optimization. Metadata (everything that isn't per-station) is written
+    as '# key,value' comment lines above the station table;
+    load_prop_csv() reads both halves back out.
+
+    r, dr, chord, twist must already be plain numbers (e.g. sol.value(...)
+    results), not CasADi opti variables.
+    """
+    metadata = [
+        ("radius_m", radius),
+        ("hub_radius_m", hub_radius),
+        ("n_blades", n_blades),
+        ("airfoil", airfoil_name),
+        ("rpm", rpm),
+        ("velocity_mps", velocity),
+        ("rho", rho),
+        ("mu", mu),
+    ]
+    with open(filepath, "w", newline="") as f:
+        for key, value in metadata:
+            f.write(f"# {key},{value}\n")
+        writer = csv.writer(f)
+        writer.writerow(["station", "r_m", "dr_m", "chord_m", "twist_deg"])
+        for i in range(len(r)):
+            writer.writerow([i, float(r[i]), float(dr[i]), float(chord[i]), float(twist[i])])
 
 
 def to_wing(prop):
@@ -253,15 +275,66 @@ def load_bem(filename, airfoil):
     prop.r = r
     prop.n_stations = len(r)
 
-    # Variable element spacing (more general than assuming uniform spacing).
-    # One dr per station (len(r_nodes)-1 == len(r)), not a single averaged
-    # scalar -- BEM.py indexes this per station so each station's true
-    # segment width is used in its own thrust/torque integral.
+    # One dr per station (matches len(r)), not a single averaged scalar --
+    # BEM.py indexes this per station for each station's own integral.
     prop.dr = np.diff(r_nodes)
 
     return prop
 
+
+def load_prop_csv(filepath):
+    """Load a propeller design exported by export_prop_csv(), returning
+    (prop, rpm, velocity, rho, mu) ready to hand straight to BEMAnalysis
+    (or verify_xfoil's XFoil-based check). Reconstructs a Propeller with
+    the exact station radii/segment widths that were actually analyzed/
+    optimized, not Propeller.__init__'s default re-gridding.
+    """
+    with open(filepath, "r", newline="") as f:
+        lines = f.readlines()
+
+    metadata = {}
+    table_start = None
+    for i, line in enumerate(lines):
+        if line.startswith("#"):
+            key, _, value = line[1:].strip().partition(",")
+            metadata[key.strip()] = value.strip()
+        else:
+            table_start = i
+            break
+
+    if table_start is None:
+        raise RuntimeError(f"No station table found in {filepath!r}.")
+
+    rows = list(csv.DictReader(lines[table_start:]))
+    if not rows:
+        raise RuntimeError(f"Station table in {filepath!r} is empty.")
+
+    r = np.array([float(row["r_m"]) for row in rows])
+    dr = np.array([float(row["dr_m"]) for row in rows])
+    chord = np.array([float(row["chord_m"]) for row in rows])
+    twist = np.array([float(row["twist_deg"]) for row in rows])
+
+    prop = Propeller(
+        radius=float(metadata["radius_m"]),
+        hub_radius=float(metadata["hub_radius_m"]),
+        chord=chord,
+        twist=twist,
+        airfoil=metadata["airfoil"],
+        n_blades=int(metadata["n_blades"]),
+    )
+    # Replace the default-regridded stations with the ones actually analyzed.
+    prop.r = r
+    prop.dr = dr
+    prop.n_stations = len(r)
+
+    rpm = float(metadata["rpm"])
+    velocity = float(metadata["velocity_mps"])
+    rho = float(metadata["rho"])
+    mu = float(metadata["mu"])
+
+    return prop, rpm, velocity, rho, mu
+
+
 if __name__ == "__main__":
     prop = load_bem("deadelus_MIL_baseline.bem","dae51")
     display_rotor(prop)
-#prop = Propeller(hub_radius=0.1,radius=3, chord=np.ones(5), twist=np.zeros(5),airfoil="dae51",n_blades=2)

@@ -18,7 +18,7 @@
     <wing>
       <Name>Blade</Name>
       <Type>MAINWING</Type>
-      <Position>0.0,0.2494,0.0</Position>
+      <Position>0.0,0.12662500000000002,0.0</Position>
       <Tilt_angle>0.0</Tilt_angle>
       <Symetric>False</Symetric>
       <isFin>false</isFin>
@@ -26,109 +26,219 @@
       <Sections>
         <Section>
           <y_position>0.0</y_position>
-          <Chord>0.11393091300516799</Chord>
+          <Chord>0.14091072064258586</Chord>
           <xOffset>0.0</xOffset>
           <Dihedral>0.0</Dihedral>
-          <Twist>65.88594895687339</Twist>
+          <Twist>75.16260950364021</Twist>
           <Left_Side_FoilName>dae51</Left_Side_FoilName>
           <Right_Side_FoilName>dae51</Right_Side_FoilName>
           <x_number_of_panels>8</x_number_of_panels>
           <y_number_of_panels>8</y_number_of_panels>
         </Section>
         <Section>
-          <y_position>0.1548</y_position>
-          <Chord>0.117866948247409</Chord>
+          <y_position>0.08324999999999999</y_position>
+          <Chord>0.13880019710552158</Chord>
           <xOffset>0.0</xOffset>
           <Dihedral>0.0</Dihedral>
-          <Twist>61.22923843640566</Twist>
+          <Twist>72.27570586977039</Twist>
           <Left_Side_FoilName>dae51</Left_Side_FoilName>
           <Right_Side_FoilName>dae51</Right_Side_FoilName>
           <x_number_of_panels>8</x_number_of_panels>
           <y_number_of_panels>8</y_number_of_panels>
         </Section>
         <Section>
-          <y_position>0.30959999999999993</y_position>
-          <Chord>0.1184681785423887</Chord>
+          <y_position>0.1665</y_position>
+          <Chord>0.13857331777790052</Chord>
           <xOffset>0.0</xOffset>
           <Dihedral>0.0</Dihedral>
-          <Twist>56.68611898381341</Twist>
+          <Twist>69.14145155620311</Twist>
           <Left_Side_FoilName>dae51</Left_Side_FoilName>
           <Right_Side_FoilName>dae51</Right_Side_FoilName>
           <x_number_of_panels>8</x_number_of_panels>
           <y_number_of_panels>8</y_number_of_panels>
         </Section>
         <Section>
-          <y_position>0.4644</y_position>
-          <Chord>0.11359332097490014</Chord>
+          <y_position>0.24975</y_position>
+          <Chord>0.13877144111629516</Chord>
           <xOffset>0.0</xOffset>
           <Dihedral>0.0</Dihedral>
-          <Twist>51.618618008626505</Twist>
+          <Twist>66.07329366598668</Twist>
           <Left_Side_FoilName>dae51</Left_Side_FoilName>
           <Right_Side_FoilName>dae51</Right_Side_FoilName>
           <x_number_of_panels>8</x_number_of_panels>
           <y_number_of_panels>8</y_number_of_panels>
         </Section>
         <Section>
-          <y_position>0.6192</y_position>
-          <Chord>0.11083627820549233</Chord>
+          <y_position>0.33299999999999996</y_position>
+          <Chord>0.13839260719446717</Chord>
           <xOffset>0.0</xOffset>
           <Dihedral>0.0</Dihedral>
-          <Twist>46.60381723011421</Twist>
+          <Twist>63.07794141471902</Twist>
           <Left_Side_FoilName>dae51</Left_Side_FoilName>
           <Right_Side_FoilName>dae51</Right_Side_FoilName>
           <x_number_of_panels>8</x_number_of_panels>
           <y_number_of_panels>8</y_number_of_panels>
         </Section>
         <Section>
-          <y_position>0.774</y_position>
-          <Chord>0.10638794118395449</Chord>
+          <y_position>0.41625</y_position>
+          <Chord>0.13723904277845167</Chord>
           <xOffset>0.0</xOffset>
           <Dihedral>0.0</Dihedral>
-          <Twist>42.08093871619854</Twist>
+          <Twist>60.01537716831267</Twist>
           <Left_Side_FoilName>dae51</Left_Side_FoilName>
           <Right_Side_FoilName>dae51</Right_Side_FoilName>
           <x_number_of_panels>8</x_number_of_panels>
           <y_number_of_panels>8</y_number_of_panels>
         </Section>
         <Section>
-          <y_position>0.9287999999999998</y_position>
-          <Chord>0.0978444070800265</Chord>
+          <y_position>0.49950000000000006</y_position>
+          <Chord>0.13697938457744382</Chord>
           <xOffset>0.0</xOffset>
           <Dihedral>0.0</Dihedral>
-          <Twist>38.31334912929034</Twist>
+          <Twist>56.89462785754785</Twist>
           <Left_Side_FoilName>dae51</Left_Side_FoilName>
           <Right_Side_FoilName>dae51</Right_Side_FoilName>
           <x_number_of_panels>8</x_number_of_panels>
           <y_number_of_panels>8</y_number_of_panels>
         </Section>
         <Section>
-          <y_position>1.0835999999999997</y_position>
-          <Chord>0.08445139300047687</Chord>
+          <y_position>0.58275</y_position>
+          <Chord>0.13764010294106016</Chord>
           <xOffset>0.0</xOffset>
           <Dihedral>0.0</Dihedral>
-          <Twist>35.2868898589377</Twist>
+          <Twist>53.796713656392946</Twist>
           <Left_Side_FoilName>dae51</Left_Side_FoilName>
           <Right_Side_FoilName>dae51</Right_Side_FoilName>
           <x_number_of_panels>8</x_number_of_panels>
           <y_number_of_panels>8</y_number_of_panels>
         </Section>
         <Section>
-          <y_position>1.2384</y_position>
-          <Chord>0.0656264982938711</Chord>
+          <y_position>0.666</y_position>
+          <Chord>0.1384786414048169</Chord>
           <xOffset>0.0</xOffset>
           <Dihedral>0.0</Dihedral>
-          <Twist>32.994756352599374</Twist>
+          <Twist>50.77401392708517</Twist>
           <Left_Side_FoilName>dae51</Left_Side_FoilName>
           <Right_Side_FoilName>dae51</Right_Side_FoilName>
           <x_number_of_panels>8</x_number_of_panels>
           <y_number_of_panels>8</y_number_of_panels>
         </Section>
         <Section>
-          <y_position>1.3931999999999998</y_position>
-          <Chord>0.040645643764529504</Chord>
+          <y_position>0.74925</y_position>
+          <Chord>0.13863316080845806</Chord>
+          <xOffset>0.0</xOffset>
+          <Dihedral>0.0</Dihedral>
+          <Twist>47.920972895007154</Twist>
+          <Left_Side_FoilName>dae51</Left_Side_FoilName>
+          <Right_Side_FoilName>dae51</Right_Side_FoilName>
+          <x_number_of_panels>8</x_number_of_panels>
+          <y_number_of_panels>8</y_number_of_panels>
+        </Section>
+        <Section>
+          <y_position>0.8325</y_position>
+          <Chord>0.13749902700461344</Chord>
+          <xOffset>0.0</xOffset>
+          <Dihedral>0.0</Dihedral>
+          <Twist>45.29909039792806</Twist>
+          <Left_Side_FoilName>dae51</Left_Side_FoilName>
+          <Right_Side_FoilName>dae51</Right_Side_FoilName>
+          <x_number_of_panels>8</x_number_of_panels>
+          <y_number_of_panels>8</y_number_of_panels>
+        </Section>
+        <Section>
+          <y_position>0.9157500000000001</y_position>
+          <Chord>0.13474970902035016</Chord>
+          <xOffset>0.0</xOffset>
+          <Dihedral>0.0</Dihedral>
+          <Twist>42.92470169123659</Twist>
+          <Left_Side_FoilName>dae51</Left_Side_FoilName>
+          <Right_Side_FoilName>dae51</Right_Side_FoilName>
+          <x_number_of_panels>8</x_number_of_panels>
+          <y_number_of_panels>8</y_number_of_panels>
+        </Section>
+        <Section>
+          <y_position>0.9990000000000001</y_position>
+          <Chord>0.13023041639032834</Chord>
+          <xOffset>0.0</xOffset>
+          <Dihedral>0.0</Dihedral>
+          <Twist>40.790371287946215</Twist>
+          <Left_Side_FoilName>dae51</Left_Side_FoilName>
+          <Right_Side_FoilName>dae51</Right_Side_FoilName>
+          <x_number_of_panels>8</x_number_of_panels>
+          <y_number_of_panels>8</y_number_of_panels>
+        </Section>
+        <Section>
+          <y_position>1.08225</y_position>
+          <Chord>0.12387003910366808</Chord>
+          <xOffset>0.0</xOffset>
+          <Dihedral>0.0</Dihedral>
+          <Twist>38.881235925480794</Twist>
+          <Left_Side_FoilName>dae51</Left_Side_FoilName>
+          <Right_Side_FoilName>dae51</Right_Side_FoilName>
+          <x_number_of_panels>8</x_number_of_panels>
+          <y_number_of_panels>8</y_number_of_panels>
+        </Section>
+        <Section>
+          <y_position>1.1655</y_position>
+          <Chord>0.1156236139442864</Chord>
+          <xOffset>0.0</xOffset>
+          <Dihedral>0.0</Dihedral>
+          <Twist>37.183527650234545</Twist>
+          <Left_Side_FoilName>dae51</Left_Side_FoilName>
+          <Right_Side_FoilName>dae51</Right_Side_FoilName>
+          <x_number_of_panels>8</x_number_of_panels>
+          <y_number_of_panels>8</y_number_of_panels>
+        </Section>
+        <Section>
+          <y_position>1.24875</y_position>
+          <Chord>0.1054295397982482</Chord>
+          <xOffset>0.0</xOffset>
+          <Dihedral>0.0</Dihedral>
+          <Twist>35.689144605175954</Twist>
+          <Left_Side_FoilName>dae51</Left_Side_FoilName>
+          <Right_Side_FoilName>dae51</Right_Side_FoilName>
+          <x_number_of_panels>8</x_number_of_panels>
+          <y_number_of_panels>8</y_number_of_panels>
+        </Section>
+        <Section>
+          <y_position>1.332</y_position>
+          <Chord>0.0931659214140591</Chord>
+          <xOffset>0.0</xOffset>
+          <Dihedral>0.0</Dihedral>
+          <Twist>34.40022383968701</Twist>
+          <Left_Side_FoilName>dae51</Left_Side_FoilName>
+          <Right_Side_FoilName>dae51</Right_Side_FoilName>
+          <x_number_of_panels>8</x_number_of_panels>
+          <y_number_of_panels>8</y_number_of_panels>
+        </Section>
+        <Section>
+          <y_position>1.4152500000000001</y_position>
+          <Chord>0.07859669484933332</Chord>
+          <xOffset>0.0</xOffset>
+          <Dihedral>0.0</Dihedral>
+          <Twist>33.33887683365632</Twist>
+          <Left_Side_FoilName>dae51</Left_Side_FoilName>
+          <Right_Side_FoilName>dae51</Right_Side_FoilName>
+          <x_number_of_panels>8</x_number_of_panels>
+          <y_number_of_panels>8</y_number_of_panels>
+        </Section>
+        <Section>
+          <y_position>1.4985000000000002</y_position>
+          <Chord>0.06140864210094685</Chord>
+          <xOffset>0.0</xOffset>
+          <Dihedral>0.0</Dihedral>
+          <Twist>32.571878325160256</Twist>
+          <Left_Side_FoilName>dae51</Left_Side_FoilName>
+          <Right_Side_FoilName>dae51</Right_Side_FoilName>
+          <x_number_of_panels>8</x_number_of_panels>
+          <y_number_of_panels>8</y_number_of_panels>
+        </Section>
+        <Section>
+          <y_position>1.58175</y_position>
+          <Chord>0.042989285158836585</Chord>
           <xOffset>0.0</xOffset>
           <Dihedral>0</Dihedral>
-          <Twist>31.66838368517237</Twist>
+          <Twist>32.242067476952755</Twist>
           <Left_Side_FoilName>dae51</Left_Side_FoilName>
           <Right_Side_FoilName>dae51</Right_Side_FoilName>
           <x_number_of_panels>8</x_number_of_panels>

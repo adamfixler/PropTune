@@ -30,20 +30,12 @@ class BEMAnalysis:
         """CasADi rootfinder that solves for [a, a'] at a single blade
         station via Newton's method, given [r, chord, beta, Omega].
 
-        This replaces leaving a/a' as free opti.variable()s tied only by an
-        equality constraint. That formulation let IPOPT wander onto
-        spurious algebraic roots of the coupled (a, a', phi, Cl(alpha))
-        system once chord/twist were simultaneously free -- verified: it
-        produced >100% "efficiency" solutions that still satisfied the
-        residuals to numerical precision, because the residual is
-        necessary but not sufficient for physical validity once geometry
-        is also free to move.
-
-        A rootfinder instead always returns the specific root nearest the
-        given initial guess, deterministically -- exactly like ordinary
-        fixed-point BEM iteration, but wrapped via the implicit function
-        theorem as a differentiable CasADi Function, so it's still usable
-        inside AeroSandbox's gradient-based optimizer.
+        Solving via a rootfinder (rather than treating a/a' as free
+        optimizer variables tied by an equality constraint) guarantees the
+        specific, physically consistent root nearest the initial guess --
+        equivalent to classical fixed-point BEM iteration, wrapped as a
+        differentiable CasADi Function so it stays usable inside
+        AeroSandbox's gradient-based optimizer.
         """
         B, R = self.prop.n_blades, self.prop.radius
         r_hub = self.prop.hub_radius
@@ -73,24 +65,14 @@ class BEMAnalysis:
         F_tip = (2 / np.pi) * np.arccos(np.exp(-f_tip))
 
         # Prandtl hub-loss factor -- same derivation as tip loss, mirrored
-        # about the root cutout instead of the tip. Models the same
-        # physical effect (momentum theory over-predicts induced velocity
-        # near an edge of the swept annulus where the helical wake
-        # structure breaks down) but for the hub end instead of the tip
-        # end. Without it the solver has no mechanism to reduce induction
-        # near the root, so hub-adjacent stations would carry
-        # unrealistically high a/a' relative to a real rotor with a finite
-        # hub cutout.
+        # about the root cutout. Reduces induction near the root the same
+        # way the tip-loss factor does near the tip.
         f_hub = (B / 2) * (r_s - r_hub) / (r_s * np.sin(phi))
-        f_hub = np.maximum(f_hub, 1e-6)  # same singularity guard as f_tip, mirrored at r_s -> r_hub
+        f_hub = np.maximum(f_hub, 1e-6)  # singularity guard, mirrored from f_tip
         F_hub = (2 / np.pi) * np.arccos(np.exp(-f_hub))
 
-        # Combined multiplicatively per standard Prandtl practice -- tip
-        # and hub loss are independent local corrections to the same
-        # momentum-balance assumption, each -> 1 away from its own edge
-        # and -> 0 at it, so the product stays well-behaved in (0, 1]
-        # across the span and reduces to tip-loss-only behavior near
-        # midspan.
+        # Combined multiplicatively per standard Prandtl practice: each
+        # factor -> 1 away from its own edge and -> 0 at it.
         F = F_tip * F_hub
 
         sigma = B * c_s / (2 * np.pi * r_s)
@@ -173,12 +155,9 @@ class BEMAnalysis:
         power = torque * self.omega
 
         if self.velocity > 0:
-            # power can be ~0 (or transiently negative) at early/degenerate
-            # optimizer iterates even with velocity > 0 -- guard the
-            # denominator so eta doesn't blow up to inf/NaN and destabilize
-            # IPOPT. np.maximum (not a Python if) keeps this differentiable
-            # for the symbolic CasADi power expression built during
-            # optimization -- same pattern as the f_tip clamp above.
+            # Guard against near-zero/negative power (can occur at early
+            # optimizer iterates) so eta doesn't blow up to inf/NaN.
+            # np.maximum keeps this differentiable for CasADi.
             power_safe = np.maximum(power, 1e-6)
             eta = thrust * self.velocity / power_safe
         else:

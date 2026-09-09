@@ -1,0 +1,11 @@
+# Pinned to the exact versions this project has been developed and
+# validated against (see README.md). NeuralFoil is a trained model bundled
+# inside aerosandbox -- an untested upgrade could silently change its
+# predictions (different Cl/Cd for the same inputs) with no error, so
+# these versions are pinned deliberately rather than left open-ended.
+# Tested with Python 3.12.
+aerosandbox==4.2.10
+casadi==3.7.2
+neuralfoil==0.3.3
+matplotlib==3.11.1
+numpy==2.4.6

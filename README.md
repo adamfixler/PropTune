@@ -1,4 +1,4 @@
-# BEMT_py
+# PropTune
 
 A blade-element-momentum-theory (BEMT) propeller design and optimization tool built for a human-powered aircraft (HPA), specifically an English Channel crossing mission modeled on MIT's Daedalus project. It optimizes blade chord, twist, and RPM for maximum propulsive efficiency at a required cruise thrust, using [AeroSandbox](https://github.com/peterdsharpe/AeroSandbox)'s gradient-based optimizer (`Opti`, backed by IPOPT) and [NeuralFoil](https://github.com/peterdsharpe/NeuralFoil) for differentiable airfoil aerodynamics. The optimized blade is then exported to XFLR5, STEP (CAD), and QBlade formats.
 
@@ -10,14 +10,24 @@ A blade-element-momentum-theory (BEMT) propeller design and optimization tool bu
 - matplotlib
 - numpy (used indirectly via `aerosandbox.numpy`)
 
+`requirements.txt` pins the exact versions this project has been developed and validated against. NeuralFoil is a trained model bundled inside `aerosandbox` — an untested upgrade could silently change its Cl/Cd predictions for the same inputs, with no error, so these versions are pinned deliberately rather than left open-ended. Bump them only intentionally, and re-check the optimizer's results afterward.
+
 Install into a virtual environment:
 
 ```bash
 python -m venv .venv
 .venv\Scripts\activate        # Windows
 source .venv/bin/activate     # macOS/Linux
-pip install aerosandbox casadi matplotlib numpy
+pip install -r requirements.txt
 ```
+
+To update the pins later (e.g. after deliberately upgrading a package and re-validating), regenerate the file from what's actually installed:
+
+```bash
+pip freeze > requirements.txt
+```
+
+(this dumps every installed package, so on a shared/system Python you may want to prune it back down to just the packages this project actually imports — a fresh virtual environment avoids that problem entirely).
 
 ## Project files
 
@@ -27,7 +37,6 @@ pip install aerosandbox casadi matplotlib numpy
 | `BEM.py` | `BEMAnalysis` — the blade-element-momentum solver: builds a differentiable induction-factor rootfinder per station and integrates thrust/torque/power/efficiency across the blade. |
 | `geometry.py` | `Propeller` geometry class, `.bem` file loader (`load_bem`), and exporters (`export_airfoil_dat`, `export_qblade_bld`, `to_wing`, `display_rotor`). |
 | `BaselineAnalyze.py` | Standalone script: analyzes (does not optimize) a loaded `.bem` baseline at a fixed RPM/velocity, for sanity-checking the solver against a known real design. |
-| `functions.py` | Legacy standalone root-finding helpers, superseded by `BEM.py`'s CasADi rootfinder. Not imported or used anywhere — kept for reference only. |
 | `deadelus_MIL_baseline.bem`, `daedalus.bem` | Example `.bem` geometry files (real/reference Daedalus propeller data) usable as an optimization seed via `USE_BEM_FILE = True`. |
 | `dae51.dat` | Exported Selig-format airfoil coordinate file (regenerated each run). |
 | `optimized_prop_blade.xml`, `optimized_prop_blade.step`, `optimized_prop.bld` | Exported optimized-blade geometry (regenerated each run) — see [Outputs](#outputs). |
@@ -145,4 +154,3 @@ Each run of `main.py` (over)writes:
 
 - Only `N ≈ 10–20` radial stations are practical — NeuralFoil's per-station symbolic graph makes higher resolutions memory-prohibitive for IPOPT's Hessian evaluation.
 - Station centers are always placed strictly between `hub_radius` and `radius` (segment midpoints, never exact endpoints) — a station exactly at the hub or tip would zero out its loss factor and let the optimizer exploit the resulting degenerate residual.
-- `functions.py` is unused legacy code, not part of the active solve path.

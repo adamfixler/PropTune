@@ -17,7 +17,7 @@ airfoil = "dae51"
 baseline = load_bem("deadelus_MIL_baseline.bem", airfoil=airfoil)
 
 rpm = 180
-velocity = 10.95248  # m/s cruise -- same operating point used in optimize.py
+velocity = 10.95248  # m/s -- Daedalus MIL baseline reference cruise condition
 
 analysis = BEMAnalysis(propeller=baseline, rpm=rpm, velocity=velocity)
 results = analysis.run()
