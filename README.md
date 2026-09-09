@@ -154,3 +154,7 @@ Each run of `main.py` (over)writes:
 
 - Only `N ≈ 10–20` radial stations are practical — NeuralFoil's per-station symbolic graph makes higher resolutions memory-prohibitive for IPOPT's Hessian evaluation.
 - Station centers are always placed strictly between `hub_radius` and `radius` (segment midpoints, never exact endpoints) — a station exactly at the hub or tip would zero out its loss factor and let the optimizer exploit the resulting degenerate residual.
+
+## License
+
+© 2026 adamfixler. All rights reserved. This repository is shared for reference only — no license is granted to use, modify, or redistribute this code.

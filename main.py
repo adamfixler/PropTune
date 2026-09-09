@@ -78,8 +78,8 @@ prop_csv_filename = "optimized_prop.csv"   # geometry + operating point, reloada
 # verify_xfoil.py. Requires the XFoil executable, and is much slower than
 # the optimization above (XFoil runs as a subprocess per station, per
 # iteration). Can also be run later, standalone: `python verify_xfoil.py`.
-RUN_XFOIL_CHECK = True
-XFOIL_COMMAND = r"C:\Users\adamf\Downloads\XFOIL6.99\xfoil.exe"  # path to your xfoil executable
+RUN_XFOIL_CHECK = False
+XFOIL_COMMAND = r"C:\Path\To\XFOIL6.99\xfoil.exe"  # path to your xfoil executable
 
 # ==============================================================================
 # End of user configuration.
