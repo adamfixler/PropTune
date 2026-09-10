@@ -20,6 +20,7 @@ Caveats:
 
 Usage: python propeller_performance_map.py [path/to/optimized_prop.csv]
 """
+import os
 import sys
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
@@ -29,7 +30,9 @@ import matplotlib.pyplot as plt
 from geometry import load_prop_csv
 from BEM import BEMAnalysis
 
-DEFAULT_CSV = "optimized_prop.csv"
+OUTPUT_DIR = "outputs"
+DEFAULT_CSV = os.path.join(OUTPUT_DIR, "optimized_prop.csv")
+DEFAULT_PLOT_PATH = os.path.join(OUTPUT_DIR, "propeller_performance_map.png")
 
 # Same thresholds main.py's optimizer enforces at the design point -- keep
 # these in sync with main.py's USER CONFIGURATION if you change them there.
@@ -116,7 +119,8 @@ def build_performance_map(csv_filepath=DEFAULT_CSV):
 
 
 def plot_performance_map(velocities, rpms, data, design_rpm, design_velocity,
-                          save_path="propeller_performance_map.png"):
+                          save_path=DEFAULT_PLOT_PATH):
+    os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
     fig, axes = plt.subplots(3, 1, figsize=(8, 10), sharex=True)
     fig.patch.set_facecolor(SURFACE)
 

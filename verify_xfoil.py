@@ -21,6 +21,7 @@ From main.py:
     the USER CONFIGURATION block -- main.py will run this automatically
     right after exporting optimized_prop.csv.
 """
+import os
 import sys
 
 import aerosandbox as asb
@@ -29,8 +30,8 @@ import aerosandbox.numpy as np
 from geometry import load_prop_csv
 from BEM import BEMAnalysis
 
-DEFAULT_CSV = "optimized_prop.csv"
-DEFAULT_XFOIL_COMMAND = r"C:\Users\adamf\Downloads\XFOIL6.99\xfoil.exe"
+DEFAULT_CSV = os.path.join("outputs", "optimized_prop.csv")
+DEFAULT_XFOIL_COMMAND = r"C:\Path\To\XFOIL6.99\xfoil.exe"
 
 MAX_ITERS = 25     # classical BEM fixed-point iterations per station
 TOL = 1e-4          # convergence tolerance on a/a' between iterations

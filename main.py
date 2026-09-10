@@ -1,3 +1,5 @@
+import os
+
 import aerosandbox as asb
 import aerosandbox.numpy as np
 
@@ -65,12 +67,14 @@ max_chord_rate = 0.4    # m of chord change per m of span
 max_twist_rate = 90.0   # deg of twist change per m of span
 
 # --- Export filenames --------------------------------------------------------------
-airfoil_dat_filename = "dae51.dat"
-xflr5_xml_filename = "optimized_prop_blade.xml"
-step_filename = "optimized_prop_blade.step"
-qblade_bld_filename = "optimized_prop.bld"
-qblade_polar_filename = "dae51_polar.plr"  # placeholder -- see export_qblade_bld()'s docstring
-prop_csv_filename = "optimized_prop.csv"   # geometry + operating point, reloadable by verify_xfoil.py
+# All exports land in OUTPUT_DIR (created automatically if missing).
+OUTPUT_DIR = "outputs"
+airfoil_dat_filename = os.path.join(OUTPUT_DIR, "dae51.dat")
+xflr5_xml_filename = os.path.join(OUTPUT_DIR, "optimized_prop_blade.xml")
+step_filename = os.path.join(OUTPUT_DIR, "optimized_prop_blade.step")
+qblade_bld_filename = os.path.join(OUTPUT_DIR, "optimized_prop.bld")
+qblade_polar_filename = "dae51_polar.plr"  # placeholder, relative to qblade_bld_filename's own folder -- see export_qblade_bld()'s docstring
+prop_csv_filename = os.path.join(OUTPUT_DIR, "optimized_prop.csv")   # geometry + operating point, reloadable by verify_xfoil.py
 
 # --- Post-optimization XFoil verification (optional) --------------------------------
 # Re-checks the optimized blade using real XFoil instead of NeuralFoil, and
@@ -84,6 +88,8 @@ XFOIL_COMMAND = r"C:\Path\To\XFOIL6.99\xfoil.exe"  # path to your xfoil executab
 # ==============================================================================
 # End of user configuration.
 # ==============================================================================
+
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 if USE_BEM_FILE:
     baseline = load_bem(BEM_FILENAME, airfoil=airfoil)
