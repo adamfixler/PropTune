@@ -163,6 +163,60 @@ def to_wing(prop):
     )
 
 
+def export_blade_step(prop, filepath, minimum_te_thickness=0.001):
+    """Export the blade as a watertight STEP solid, suitable for CFD.
+
+    Builds each cross-section as a single unsplit spline (AeroSandbox's
+    own export_cadquery_geometry splits at the leading edge, which leaves
+    the loft unstitched there), so the loft closes into one genuine solid.
+    Reuses AeroSandbox's per-station transform, so the blade shape itself
+    is unchanged.
+
+    Relies on AeroSandbox's internal Wing._compute_frame_of_WingXSec() --
+    may need updating if a future AeroSandbox version changes that method.
+    """
+    import cadquery as cq
+
+    wing = to_wing(prop)
+
+    xsec_wires = []
+    for i, xsec in enumerate(wing.xsecs):
+        csys = wing._compute_frame_of_WingXSec(i)
+        af = xsec.airfoil
+        if af.TE_thickness() < minimum_te_thickness:
+            af = af.set_TE_thickness(thickness=minimum_te_thickness)
+
+        workplane = cq.Workplane(
+            inPlane=cq.Plane(
+                origin=tuple(xsec.xyz_le),
+                xDir=tuple(csys[0]),
+                normal=tuple(-csys[1]),
+            )
+        )
+        xsec_wires.append(
+            workplane.spline(
+                listOfXYTuple=[tuple(xy * xsec.chord) for xy in af.coordinates]
+            ).close()
+        )
+
+    wire_collection = xsec_wires[0]
+    for s in xsec_wires[1:]:
+        wire_collection.ctx.pendingWires.extend(s.ctx.pendingWires)
+
+    loft = wire_collection.loft(ruled=False, clean=True)  # smooth loft avoids kinks between twisted profiles
+
+    solids = loft.solids().vals()
+    if len(solids) != 1 or not loft.val().isValid():
+        raise RuntimeError(
+            f"export_blade_step: result is not a single valid watertight "
+            f"solid (solids={len(solids)}, valid={loft.val().isValid()}) -- "
+            f"refusing to export a STEP file that CFD tools would reject."
+        )
+
+    solid = loft.val().scale(1000)  # STEP files are conventionally in mm
+    cq.exporters.export(solid, str(filepath))
+
+
 def display_rotor(prop):
 
     wing = to_wing(prop)

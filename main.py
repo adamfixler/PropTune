@@ -3,7 +3,7 @@ import os
 import aerosandbox as asb
 import aerosandbox.numpy as np
 
-from geometry import Propeller, load_bem, display_rotor, export_airfoil_dat, export_qblade_bld, export_prop_csv, to_wing
+from geometry import Propeller, load_bem, display_rotor, export_airfoil_dat, export_qblade_bld, export_prop_csv, export_blade_step, to_wing
 from BEM import BEMAnalysis
 
 # ==============================================================================
@@ -225,10 +225,12 @@ airplane = asb.Airplane(name="Optimized HPA Prop Blade", wings=[blade_wing])
 airplane.export_XFLR5_xml(xflr5_xml_filename)
 
 # ------------------------------------------------------------------
-# CAD export (AeroSandbox's native exporter) -- a self-contained STEP
-# solid, openable in Fusion 360, SolidWorks, FreeCAD, etc.
+# CAD export -- a self-contained, watertight STEP solid, openable in
+# Fusion 360, SolidWorks, FreeCAD, etc., and suitable for CFD meshing.
+# See export_blade_step()'s docstring in geometry.py for why this is
+# used instead of AeroSandbox's own export_cadquery_geometry().
 # ------------------------------------------------------------------
-airplane.export_cadquery_geometry(step_filename)
+export_blade_step(prop_result, step_filename)
 
 print(f"\nExported: {airfoil_dat_filename}, {xflr5_xml_filename}, {step_filename}")
 
