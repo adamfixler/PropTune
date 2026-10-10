@@ -163,7 +163,7 @@ def to_wing(prop):
     )
 
 
-def export_blade_step(prop, filepath, minimum_te_thickness=0.001):
+def export_blade_step(prop, filepath, minimum_te_thickness=0.001, root_embed=0.025):
     """Export the blade as a watertight STEP solid, suitable for CFD.
 
     Builds each cross-section as a single unsplit spline (AeroSandbox's
@@ -172,6 +172,21 @@ def export_blade_step(prop, filepath, minimum_te_thickness=0.001):
     Reuses AeroSandbox's per-station transform, so the blade shape itself
     is unchanged.
 
+    The blade spans hub to tip, positioned about the shaft axis (origin),
+    so it can be imported and attached to a hub of radius hub_radius
+    WITHOUT moving it radially -- any radial shift moves every section
+    off its design radius and changes the aerodynamics.
+
+    Tip: a section at r=radius, with chord and twist linearly
+    extrapolated from the last two stations, so the taper continues
+    (holding the last section constant leaves a visible kink where the
+    taper stops). Over the last BEM strip the mean chord stays ~= the
+    last station's, as BEM assumes.
+    Root: the first station's section is extruded straight (constant
+    chord and twist) to root_embed (m) inside the hub, so it buries into
+    the hub. Extruded rather than lofted -- the smooth loft overshoots a
+    sudden switch to constant chord.
+
     Relies on AeroSandbox's internal Wing._compute_frame_of_WingXSec() --
     may need updating if a future AeroSandbox version changes that method.
     """
@@ -179,13 +194,14 @@ def export_blade_step(prop, filepath, minimum_te_thickness=0.001):
 
     wing = to_wing(prop)
 
-    xsec_wires = []
-    for i, xsec in enumerate(wing.xsecs):
+    def section(i, wing=wing):
+        xsec = wing.xsecs[i]
         csys = wing._compute_frame_of_WingXSec(i)
         af = xsec.airfoil
         if af.TE_thickness() < minimum_te_thickness:
             af = af.set_TE_thickness(thickness=minimum_te_thickness)
 
+        # Normal is -span (-y), so a positive extrude() runs toward the hub.
         workplane = cq.Workplane(
             inPlane=cq.Plane(
                 origin=tuple(xsec.xyz_le),
@@ -193,17 +209,38 @@ def export_blade_step(prop, filepath, minimum_te_thickness=0.001):
                 normal=tuple(-csys[1]),
             )
         )
-        xsec_wires.append(
-            workplane.spline(
-                listOfXYTuple=[tuple(xy * xsec.chord) for xy in af.coordinates]
-            ).close()
-        )
+        return workplane.spline(
+            listOfXYTuple=[tuple(xy * xsec.chord) for xy in af.coordinates]
+        ).close()
+
+    xsec_wires = [section(i) for i in range(len(wing.xsecs))]
 
     wire_collection = xsec_wires[0]
     for s in xsec_wires[1:]:
         wire_collection.ctx.pendingWires.extend(s.ctx.pendingWires)
 
     loft = wire_collection.loft(ruled=False, clean=True)  # smooth loft avoids kinks between twisted profiles
+
+    tip_ext = prop.radius - float(prop.r[-1])
+    if tip_ext > 0:
+        a, b = wing.xsecs[-2], wing.xsecs[-1]
+        frac = tip_ext / (b.xyz_le[1] - a.xyz_le[1])
+        # Floor stops a steep taper extrapolating to a zero/negative chord.
+        tip_chord = max(b.chord + frac * (b.chord - a.chord), 0.5 * b.chord)
+        tip_wing = asb.Wing(xsecs=[b, asb.WingXSec(
+            xyz_le=[0, prop.radius, 0], chord=tip_chord,
+            twist=b.twist + frac * (b.twist - a.twist), airfoil=b.airfoil,
+        )])
+        # Separate ruled (linear) loft: adding the tip to the smooth loft
+        # above overshoots past r=radius, because its half-width spacing
+        # breaks the loft's even section spacing.
+        tip_wires = section(0, tip_wing)
+        tip_wires.ctx.pendingWires.extend(section(1, tip_wing).ctx.pendingWires)
+        loft = loft.union(tip_wires.loft(ruled=True, clean=True))
+
+    root_ext = float(prop.r[0]) - (prop.hub_radius - root_embed)
+    if root_ext > 0:
+        loft = loft.union(section(0).extrude(root_ext))
 
     solids = loft.solids().vals()
     if len(solids) != 1 or not loft.val().isValid():
