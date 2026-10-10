@@ -41,6 +41,13 @@ hub_radius = 0.085             # m -- root cutout
 n_blades = 2
 max_chord = 8.3 * 0.0254       # 8.3 in -> m
 
+# --- Hub placement in your CAD/CFD model ------------------------------------------
+# Only used to print how far to translate the exported STEP blade along the
+# shaft (z) axis to centre it on the hub. The hub spans
+# z = hub_top_z - hub_length ... hub_top_z (m).
+hub_top_z = 0.0                # m -- z of the hub's top face
+hub_length = 0.15              # m -- hub axial length
+
 # --- Design variable bounds -----------------------------------------------------
 # rpm is a free design variable, optimized jointly with chord/twist. Bounds
 # are a sane range for a human-powered aircraft (Daedalus cruised at ~108
@@ -65,6 +72,14 @@ twist_scale = 10.0           # deg -- normalizes the twist penalty against the c
 # dimensionless number.
 max_chord_rate = 0.4    # m of chord change per m of span
 max_twist_rate = 90.0   # deg of twist change per m of span
+
+# --- CFD corrections ------------------------------------------------------------------
+# True: add the per-station Cl/Cd corrections fitted by cfd_calibration.py
+# (from a CFD run of an earlier design) to NeuralFoil's coefficients, so the
+# optimizer designs against CFD-calibrated loads. Corrections are
+# interpolated by r/R onto this run's stations. False: plain BEM.
+USE_CFD_CORRECTIONS = False
+CFD_CORRECTIONS_FILE = os.path.join("calibration", "cfd_corrections.csv")
 
 # --- Export filenames --------------------------------------------------------------
 # All exports land in OUTPUT_DIR (created automatically if missing).
@@ -140,7 +155,20 @@ prop.r = r_stations
 prop.dr = dr
 prop.n_stations = N
 
-analysis = BEMAnalysis(propeller=prop, rpm=rpm, velocity=velocity)
+cl_offset = cd_offset = None
+if USE_CFD_CORRECTIONS:
+    from cfd_calibration import interpolate_corrections
+    cl_offset, cd_offset, corr_meta = interpolate_corrections(CFD_CORRECTIONS_FILE, r_stations, radius)
+    print(f"Using CFD corrections from {CFD_CORRECTIONS_FILE} "
+          f"(calibrated on {corr_meta.get('design_csv')}, {corr_meta.get('airfoil')}, "
+          f"R={corr_meta.get('radius_m')} m, {float(corr_meta.get('rpm', 'nan')):.1f} rpm, "
+          f"{corr_meta.get('velocity_mps')} m/s)")
+    if corr_meta.get("airfoil") != airfoil:
+        print(f"  WARNING: corrections were fitted for airfoil {corr_meta.get('airfoil')!r}, "
+              f"this run uses {airfoil!r}")
+
+analysis = BEMAnalysis(propeller=prop, rpm=rpm, velocity=velocity,
+                       cl_offset=cl_offset, cd_offset=cd_offset)
 results = analysis.run()
 
 # ------------------------------------------------------------------
@@ -230,7 +258,7 @@ airplane.export_XFLR5_xml(xflr5_xml_filename)
 # See export_blade_step()'s docstring in geometry.py for why this is
 # used instead of AeroSandbox's own export_cadquery_geometry().
 # ------------------------------------------------------------------
-export_blade_step(prop_result, step_filename)
+export_blade_step(prop_result, step_filename, hub_top_z=hub_top_z, hub_length=hub_length)
 
 print(f"\nExported: {airfoil_dat_filename}, {xflr5_xml_filename}, {step_filename}")
 

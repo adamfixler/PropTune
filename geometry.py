@@ -163,7 +163,8 @@ def to_wing(prop):
     )
 
 
-def export_blade_step(prop, filepath, minimum_te_thickness=0.001, root_embed=0.025):
+def export_blade_step(prop, filepath, minimum_te_thickness=0.001, root_embed=0.025,
+                      hub_top_z=None, hub_length=None):
     """Export the blade as a watertight STEP solid, suitable for CFD.
 
     Builds each cross-section as a single unsplit spline (AeroSandbox's
@@ -186,6 +187,10 @@ def export_blade_step(prop, filepath, minimum_te_thickness=0.001, root_embed=0.0
     chord and twist) to root_embed (m) inside the hub, so it buries into
     the hub. Extruded rather than lofted -- the smooth loft overshoots a
     sudden switch to constant chord.
+
+    If hub_top_z and hub_length (m) are given, also prints the z-translation
+    that centres the blade on a hub spanning z = hub_top_z - hub_length ...
+    hub_top_z (see print_hub_placement()).
 
     Relies on AeroSandbox's internal Wing._compute_frame_of_WingXSec() --
     may need updating if a future AeroSandbox version changes that method.
@@ -252,6 +257,41 @@ def export_blade_step(prop, filepath, minimum_te_thickness=0.001, root_embed=0.0
 
     solid = loft.val().scale(1000)  # STEP files are conventionally in mm
     cq.exporters.export(solid, str(filepath))
+
+    if hub_top_z is not None and hub_length is not None:
+        print_hub_placement(loft.val(), hub_top_z, hub_length)
+
+
+def print_hub_placement(blade_solid, hub_top_z, hub_length):
+    """Print the translation that centres the exported blade axially on a
+    hub spanning z = hub_top_z - hub_length ... hub_top_z (m).
+
+    The STEP's shaft axis is the z-axis through the origin, so the blade
+    already sits on the hub axis -- only a z-translation is needed.
+    blade_solid is in metres (before the STEP's mm scaling).
+    """
+    from OCP.Bnd import Bnd_Box
+    from OCP.BRepBndLib import BRepBndLib
+
+    box = Bnd_Box()
+    BRepBndLib.AddOptimal_s(blade_solid.wrapped, box, False, False)  # tight, not the padded default
+    z_min, z_max = box.Get()[2], box.Get()[5]
+
+    hub_bottom_z = hub_top_z - hub_length
+    dz = 0.5 * (hub_bottom_z + hub_top_z) - 0.5 * (z_min + z_max)
+    clearance = 0.5 * (hub_length - (z_max - z_min))
+
+    print("\nHub placement (shaft axis = z through the origin; do NOT move in x or y):")
+    print(f"  hub                z = {hub_bottom_z:+.5f} .. {hub_top_z:+.5f} m")
+    print(f"  blade as exported  z = {z_min:+.5f} .. {z_max:+.5f} m  "
+          f"(axial extent {z_max - z_min:.5f} m)")
+    print(f"  translate blade by (0, 0, {dz:+.5f}) m  =  (0, 0, {dz * 1000:+.2f}) mm")
+    print(f"  blade after move   z = {z_min + dz:+.5f} .. {z_max + dz:+.5f} m")
+    if clearance >= 0:
+        print(f"  clearance to each hub face: {clearance * 1000:.2f} mm")
+    else:
+        print(f"  WARNING: blade is {-2 * clearance * 1000:.2f} mm longer axially than the "
+              f"hub -- it will overhang both hub faces by {-clearance * 1000:.2f} mm")
 
 
 def display_rotor(prop):

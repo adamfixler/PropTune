@@ -14,6 +14,8 @@ class BEMAnalysis:
         rho=1.225,
         mu=1.81e-5,
         induction_guess=(0.02, 0.01),
+        cl_offset=None,
+        cd_offset=None,
     ):
         self.prop = propeller
         self.rpm = rpm
@@ -23,12 +25,22 @@ class BEMAnalysis:
         self.omega = rpm * 2 * np.pi / 60
         self.induction_guess = induction_guess
 
+        # Per-station additive corrections to NeuralFoil's Cl/Cd (e.g. fitted
+        # to CFD by cfd_calibration.py). Zero by default = plain BEM. Applied
+        # inside the induction solve too, so a/a' stay consistent with them.
+        # Plain attributes: can be changed between run() calls without
+        # rebuilding the solver.
+        n = propeller.n_stations
+        self.cl_offset = np.zeros(n) if cl_offset is None else cl_offset
+        self.cd_offset = np.zeros(n) if cd_offset is None else cd_offset
+
         # Built once; reused for every station and every design iterate.
         self._induction_solver = self._build_induction_solver()
 
     def _build_induction_solver(self):
         """CasADi rootfinder that solves for [a, a'] at a single blade
-        station via Newton's method, given [r, chord, beta, Omega].
+        station via Newton's method, given [r, chord, beta, Omega, dCl, dCd]
+        (dCl/dCd: additive Cl/Cd corrections, see __init__).
 
         Solving via a rootfinder (rather than treating a/a' as free
         optimizer variables tied by an equality constraint) guarantees the
@@ -45,8 +57,8 @@ class BEMAnalysis:
 
         z = ca.MX.sym("z", 2)            # [a, ap]
         a_s, ap_s = z[0], z[1]
-        p = ca.MX.sym("p", 4)            # [r, chord, beta(rad), Omega]
-        r_s, c_s, beta_s, Omega = p[0], p[1], p[2], p[3]
+        p = ca.MX.sym("p", 6)            # [r, chord, beta(rad), Omega, dCl, dCd]
+        r_s, c_s, beta_s, Omega, dcl_s, dcd_s = p[0], p[1], p[2], p[3], p[4], p[5]
 
         Vax = V * (1 + a_s)
         Vtan = Omega * r_s * (1 - ap_s)
@@ -58,7 +70,7 @@ class BEMAnalysis:
         aero = airfoil.get_aero_from_neuralfoil(
             alpha=np.degrees(alpha), Re=Re, mach=W / 340,
         )
-        Cl, Cd = aero["CL"], aero["CD"]
+        Cl, Cd = aero["CL"] + dcl_s, aero["CD"] + dcd_s
 
         f_tip = (B / 2) * (R - r_s) / (r_s * np.sin(phi))
         f_tip = np.maximum(f_tip, 1e-6)
@@ -99,8 +111,10 @@ class BEMAnalysis:
             c = self.prop.chord[i]
             beta = np.radians(self.prop.twist[i])  # degrees -> radians
 
+            dcl, dcd = self.cl_offset[i], self.cd_offset[i]
+
             z_sol = self._induction_solver(
-                list(self.induction_guess), ca.vertcat(r, c, beta, self.omega)
+                list(self.induction_guess), ca.vertcat(r, c, beta, self.omega, dcl, dcd)
             )
             a_i, ap_i = z_sol[0], z_sol[1]
 
@@ -116,8 +130,8 @@ class BEMAnalysis:
                 Re=Re,
                 mach=W / 340,
             )
-            Cl = aero["CL"]
-            Cd = aero["CD"]
+            Cl = aero["CL"] + dcl
+            Cd = aero["CD"] + dcd
             analysis_confidence = aero["analysis_confidence"]
 
             q = 0.5 * self.rho * W ** 2
