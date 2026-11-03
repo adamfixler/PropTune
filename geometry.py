@@ -164,7 +164,8 @@ def to_wing(prop):
 
 
 def export_blade_step(prop, filepath, minimum_te_thickness=0.001, root_embed=0.025,
-                      hub_top_z=None, hub_length=None):
+                      hub_top_z=None, hub_length=None, center_on_hub=False,
+                      sections_per_station=4):
     """Export the blade as a watertight STEP solid, suitable for CFD.
 
     Builds each cross-section as a single unsplit spline (AeroSandbox's
@@ -183,21 +184,52 @@ def export_blade_step(prop, filepath, minimum_te_thickness=0.001, root_embed=0.0
     (holding the last section constant leaves a visible kink where the
     taper stops). Over the last BEM strip the mean chord stays ~= the
     last station's, as BEM assumes.
+    Between stations: chord and twist are interpolated monotonically
+    (PCHIP), sections_per_station evenly spaced sections per station
+    spacing, and the blade is lofted through all of them in one smooth
+    loft. Every station's section is reproduced exactly.
     Root: the first station's section is extruded straight (constant
     chord and twist) to root_embed (m) inside the hub, so it buries into
     the hub. Extruded rather than lofted -- the smooth loft overshoots a
     sudden switch to constant chord.
 
-    If hub_top_z and hub_length (m) are given, also prints the z-translation
-    that centres the blade on a hub spanning z = hub_top_z - hub_length ...
-    hub_top_z (see print_hub_placement()).
+    If hub_top_z and hub_length (m) are given, also works out the
+    z-translation that centres the blade on a hub spanning z = hub_top_z -
+    hub_length ... hub_top_z (see hub_placement()), prints it, and returns
+    it. With center_on_hub=True that translation is applied to the STEP
+    itself, so it imports already in place. Otherwise the blade's leading
+    edge stays on the y-axis and the translation must be applied in CAD.
 
     Relies on AeroSandbox's internal Wing._compute_frame_of_WingXSec() --
     may need updating if a future AeroSandbox version changes that method.
     """
     import cadquery as cq
+    from scipy.interpolate import PchipInterpolator
 
-    wing = to_wing(prop)
+    r = np.array(prop.r, dtype=float)
+    chord = np.array(prop.chord, dtype=float)
+    twist = np.array(prop.twist, dtype=float)
+    if prop.radius > r[-1]:
+        frac = (prop.radius - r[-1]) / (r[-1] - r[-2])
+        r = np.append(r, prop.radius)
+        # Floor stops a steep taper extrapolating to a zero/negative chord.
+        chord = np.append(chord, max(chord[-1] + frac * (chord[-1] - chord[-2]), 0.5 * chord[-1]))
+        twist = np.append(twist, twist[-1] + frac * (twist[-1] - twist[-2]))
+
+    # Loft through evenly spaced sections (uneven spacing makes the loft
+    # overshoot), with chord/twist between stations from a monotone (PCHIP)
+    # interpolation. A loft through the stations alone overshoots wherever
+    # the taper changes slope sharply (a dip-then-bulge in chord near a
+    # thickness-constrained tip); with 4 sections per station spacing the
+    # surface stays within ~0.3 mm of the intended chord.
+    step = np.min(np.diff(prop.r)) / sections_per_station if len(prop.r) > 1 else r[-1] - r[0]
+    r_loft = np.linspace(r[0], r[-1], int(round((r[-1] - r[0]) / step)) + 1)
+    chord_loft = PchipInterpolator(r, chord)(r_loft)
+    twist_loft = PchipInterpolator(r, twist)(r_loft)
+    wing = asb.Wing(xsecs=[
+        asb.WingXSec(xyz_le=[0, float(ri), 0], chord=float(ci), twist=float(ti), airfoil=prop.airfoil)
+        for ri, ci, ti in zip(r_loft, chord_loft, twist_loft)
+    ], symmetric=False)
 
     def section(i, wing=wing):
         xsec = wing.xsecs[i]
@@ -218,30 +250,18 @@ def export_blade_step(prop, filepath, minimum_te_thickness=0.001, root_embed=0.0
             listOfXYTuple=[tuple(xy * xsec.chord) for xy in af.coordinates]
         ).close()
 
-    xsec_wires = [section(i) for i in range(len(wing.xsecs))]
-
-    wire_collection = xsec_wires[0]
-    for s in xsec_wires[1:]:
-        wire_collection.ctx.pendingWires.extend(s.ctx.pendingWires)
-
-    loft = wire_collection.loft(ruled=False, clean=True)  # smooth loft avoids kinks between twisted profiles
-
-    tip_ext = prop.radius - float(prop.r[-1])
-    if tip_ext > 0:
-        a, b = wing.xsecs[-2], wing.xsecs[-1]
-        frac = tip_ext / (b.xyz_le[1] - a.xyz_le[1])
-        # Floor stops a steep taper extrapolating to a zero/negative chord.
-        tip_chord = max(b.chord + frac * (b.chord - a.chord), 0.5 * b.chord)
-        tip_wing = asb.Wing(xsecs=[b, asb.WingXSec(
-            xyz_le=[0, prop.radius, 0], chord=tip_chord,
-            twist=b.twist + frac * (b.twist - a.twist), airfoil=b.airfoil,
-        )])
-        # Separate ruled (linear) loft: adding the tip to the smooth loft
-        # above overshoots past r=radius, because its half-width spacing
-        # breaks the loft's even section spacing.
-        tip_wires = section(0, tip_wing)
-        tip_wires.ctx.pendingWires.extend(section(1, tip_wing).ctx.pendingWires)
-        loft = loft.union(tip_wires.loft(ruled=True, clean=True))
+    # Smooth loft, built directly rather than via CadQuery's loft(): that
+    # leaves OpenCASCADE's wire-compatibility check on, which re-matches
+    # points between the twisted sections and makes the surface wobble
+    # (chord errors of ~15 mm near the tip). Every section is the same
+    # airfoil point list in the same order, so they're already compatible.
+    from OCP.BRepOffsetAPI import BRepOffsetAPI_ThruSections
+    builder = BRepOffsetAPI_ThruSections(True, False, 1e-6)  # solid, smooth
+    for i in range(len(wing.xsecs)):
+        builder.AddWire(section(i).wires().val().wrapped)
+    builder.CheckCompatibility(False)
+    builder.Build()
+    loft = cq.Workplane("XY").newObject([cq.Solid(builder.Shape())])
 
     root_ext = float(prop.r[0]) - (prop.hub_radius - root_embed)
     if root_ext > 0:
@@ -255,20 +275,23 @@ def export_blade_step(prop, filepath, minimum_te_thickness=0.001, root_embed=0.0
             f"refusing to export a STEP file that CFD tools would reject."
         )
 
-    solid = loft.val().scale(1000)  # STEP files are conventionally in mm
-    cq.exporters.export(solid, str(filepath))
-
+    solid = loft.val()
+    placement = None
     if hub_top_z is not None and hub_length is not None:
-        print_hub_placement(loft.val(), hub_top_z, hub_length)
+        placement = hub_placement(solid, hub_top_z, hub_length)
+        if center_on_hub:
+            solid = solid.translate(cq.Vector(0, 0, placement["dz"]))
+        print_hub_placement(placement, applied=center_on_hub)
+
+    cq.exporters.export(solid.scale(1000), str(filepath))  # STEP files are conventionally in mm
+    return placement
 
 
-def print_hub_placement(blade_solid, hub_top_z, hub_length):
-    """Print the translation that centres the exported blade axially on a
-    hub spanning z = hub_top_z - hub_length ... hub_top_z (m).
-
-    The STEP's shaft axis is the z-axis through the origin, so the blade
-    already sits on the hub axis -- only a z-translation is needed.
-    blade_solid is in metres (before the STEP's mm scaling).
+def hub_placement(blade_solid, hub_top_z, hub_length):
+    """The z-translation that centres a blade solid (in metres, shaft axis =
+    z through the origin) axially on a hub spanning z = hub_top_z -
+    hub_length ... hub_top_z (m). Only z is needed: the blade already sits
+    on the hub axis. Returns a dict of the placement (all in m).
     """
     from OCP.Bnd import Bnd_Box
     from OCP.BRepBndLib import BRepBndLib
@@ -279,19 +302,52 @@ def print_hub_placement(blade_solid, hub_top_z, hub_length):
 
     hub_bottom_z = hub_top_z - hub_length
     dz = 0.5 * (hub_bottom_z + hub_top_z) - 0.5 * (z_min + z_max)
-    clearance = 0.5 * (hub_length - (z_max - z_min))
+    return {
+        "hub_bottom_z": hub_bottom_z, "hub_top_z": hub_top_z,
+        "z_min": z_min, "z_max": z_max, "dz": dz,
+        "clearance": 0.5 * (hub_length - (z_max - z_min)),
+    }
 
+
+def print_hub_placement(p, applied=False):
     print("\nHub placement (shaft axis = z through the origin; do NOT move in x or y):")
-    print(f"  hub                z = {hub_bottom_z:+.5f} .. {hub_top_z:+.5f} m")
-    print(f"  blade as exported  z = {z_min:+.5f} .. {z_max:+.5f} m  "
-          f"(axial extent {z_max - z_min:.5f} m)")
-    print(f"  translate blade by (0, 0, {dz:+.5f}) m  =  (0, 0, {dz * 1000:+.2f}) mm")
-    print(f"  blade after move   z = {z_min + dz:+.5f} .. {z_max + dz:+.5f} m")
-    if clearance >= 0:
-        print(f"  clearance to each hub face: {clearance * 1000:.2f} mm")
+    print(f"  hub                z = {p['hub_bottom_z']:+.5f} .. {p['hub_top_z']:+.5f} m")
+    print(f"  blade as lofted    z = {p['z_min']:+.5f} .. {p['z_max']:+.5f} m  "
+          f"(axial extent {p['z_max'] - p['z_min']:.5f} m)")
+    if applied:
+        print(f"  already centred in the STEP (moved by {p['dz'] * 1000:+.2f} mm in z) "
+              f"-- import it as-is, no translation needed")
     else:
-        print(f"  WARNING: blade is {-2 * clearance * 1000:.2f} mm longer axially than the "
-              f"hub -- it will overhang both hub faces by {-clearance * 1000:.2f} mm")
+        print(f"  translate blade by (0, 0, {p['dz']:+.5f}) m  =  (0, 0, {p['dz'] * 1000:+.2f}) mm")
+    print(f"  blade on the hub   z = {p['z_min'] + p['dz']:+.5f} .. {p['z_max'] + p['dz']:+.5f} m")
+    if p["clearance"] >= 0:
+        print(f"  clearance to each hub face: {p['clearance'] * 1000:.2f} mm")
+    else:
+        print(f"  WARNING: blade is {-2 * p['clearance'] * 1000:.2f} mm longer axially than the "
+              f"hub -- it will overhang both hub faces by {-p['clearance'] * 1000:.2f} mm")
+
+
+def export_cfd_params(filepath, params, comment="PropTune design parameters for CFD setup"):
+    """Write a flat key=value file (Java .properties format) describing the
+    exported design -- STEP file, RPM, hub placement, predictions -- so a
+    CFD setup script (e.g. a STAR-CCM+ Java macro, via
+    java.util.Properties.load) can apply a new design without hand edits.
+    Paths are written with forward slashes (backslashes are escapes in
+    .properties); booleans as true/false.
+    """
+    import datetime
+
+    def fmt(value):
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, float):
+            return repr(value)
+        return str(value).replace("\\", "/")
+
+    with open(filepath, "w") as f:
+        f.write(f"# {comment}\n# generated {datetime.datetime.now().isoformat(timespec='seconds')}\n")
+        for key, value in params.items():
+            f.write(f"{key}={fmt(value)}\n")
 
 
 def display_rotor(prop):

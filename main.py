@@ -3,7 +3,7 @@ import os
 import aerosandbox as asb
 import aerosandbox.numpy as np
 
-from geometry import Propeller, load_bem, display_rotor, export_airfoil_dat, export_qblade_bld, export_prop_csv, export_blade_step, to_wing
+from geometry import Propeller, load_bem, display_rotor, export_airfoil_dat, export_qblade_bld, export_prop_csv, export_blade_step, export_cfd_params, to_wing
 from BEM import BEMAnalysis
 
 # ==============================================================================
@@ -37,16 +37,19 @@ N = 20
 # --- From-scratch seed geometry (USE_BEM_FILE=False only) ------------------------
 # Real Daedalus numbers (MIT, web.mit.edu/drela/Public/web/hpa/dae_prop.pdf).
 radius = 3.5 / 2               # m
-hub_radius = 0.085             # m -- root cutout
+hub_radius = 0.0782 / 2        # m -- root cutout (hub diameter 78.2 mm)
 n_blades = 2
 max_chord = 8.3 * 0.0254       # 8.3 in -> m
 
 # --- Hub placement in your CAD/CFD model ------------------------------------------
-# Only used to print how far to translate the exported STEP blade along the
-# shaft (z) axis to centre it on the hub. The hub spans
-# z = hub_top_z - hub_length ... hub_top_z (m).
+# The hub spans z = hub_top_z - hub_length ... hub_top_z (m), on the shaft
+# (z) axis. Used to centre the exported STEP blade axially on the hub.
 hub_top_z = 0.0                # m -- z of the hub's top face
-hub_length = 0.15              # m -- hub axial length
+hub_length = 0.30              # m -- hub axial length
+# True: the STEP is exported already centred on the hub -- import it as-is.
+# False: the STEP keeps the leading edge on the y-axis, and the z-translation
+# to apply in CAD is printed instead.
+CENTER_BLADE_ON_HUB = True
 
 # --- Design variable bounds -----------------------------------------------------
 # rpm is a free design variable, optimized jointly with chord/twist. Bounds
@@ -70,15 +73,20 @@ twist_scale = 10.0           # deg -- normalizes the twist penalty against the c
 # Hard per-segment rate bounds, in physical units (chord/twist change per
 # meter of span), tied to manufacturing tolerance rather than an arbitrary
 # dimensionless number.
-max_chord_rate = 0.4    # m of chord change per m of span
-max_twist_rate = 90.0   # deg of twist change per m of span
+max_chord_rate = 0.8    # m of chord change per m of span
+max_twist_rate = 120   # deg of twist change per m of span
+
+# --- Minimum airfoil thickness (max t/c x chord) ---------------------------------
+min_root_thickness = 0.025      # m -- at the root station (carried into the hub by the export)
+min_thickness = 0.005          # m -- everywhere else: every station and the exported tip
+
 
 # --- CFD corrections ------------------------------------------------------------------
 # True: add the per-station Cl/Cd corrections fitted by cfd_calibration.py
 # (from a CFD run of an earlier design) to NeuralFoil's coefficients, so the
 # optimizer designs against CFD-calibrated loads. Corrections are
 # interpolated by r/R onto this run's stations. False: plain BEM.
-USE_CFD_CORRECTIONS = False
+USE_CFD_CORRECTIONS = True
 CFD_CORRECTIONS_FILE = os.path.join("calibration", "cfd_corrections.csv")
 
 # --- Export filenames --------------------------------------------------------------
@@ -90,6 +98,7 @@ step_filename = os.path.join(OUTPUT_DIR, "optimized_prop_blade.step")
 qblade_bld_filename = os.path.join(OUTPUT_DIR, "optimized_prop.bld")
 qblade_polar_filename = "dae51_polar.plr"  # placeholder, relative to qblade_bld_filename's own folder -- see export_qblade_bld()'s docstring
 prop_csv_filename = os.path.join(OUTPUT_DIR, "optimized_prop.csv")   # geometry + operating point, reloadable by verify_xfoil.py
+cfd_params_filename = os.path.join(OUTPUT_DIR, "cfd_params.properties")  # STEP file, rpm, hub placement -- for a CFD setup macro
 
 # --- Post-optimization XFoil verification (optional) --------------------------------
 # Re-checks the optimized blade using real XFoil instead of NeuralFoil, and
@@ -205,6 +214,19 @@ opti.subject_to(chord_rate >= -max_chord_rate)
 opti.subject_to(twist_rate <= max_twist_rate)
 opti.subject_to(twist_rate >= -max_twist_rate)
 
+# Minimum thickness: at the root, at every station, and at the tip.
+max_af_thickness = asb.Airfoil(airfoil).max_thickness()
+root_thickness = chord[0] * max_af_thickness
+# The STEP export extends the blade from the last station out to r = radius,
+# continuing the taper of the last two stations -- constrain that actual tip.
+tip_frac = (radius - r_stations[-1]) / (r_stations[-1] - r_stations[-2])
+tip_chord = chord[-1] + tip_frac * (chord[-1] - chord[-2])
+tip_thickness = tip_chord * max_af_thickness
+
+opti.subject_to(root_thickness >= min_root_thickness)
+opti.subject_to(chord * max_af_thickness >= min_thickness)
+opti.subject_to(tip_thickness >= min_thickness)
+
 opti.minimize(-results["efficiency"] + smoothness_weight * smoothness_penalty)
 
 sol = opti.solve(max_iter=1000)
@@ -220,9 +242,11 @@ print(f"Thrust     : {sol.value(results['thrust']):.2f} N")
 print(f"Torque     : {sol.value(results['torque']):.2f} Nm")
 print(f"Power      : {sol.value(results['power']):.2f} W")
 print()
-print(f"{'r (m)':>8} {'chord_0 (m)':>12} {'chord_opt (m)':>14} {'twist_0 (deg)':>14} {'twist_opt (deg)':>16}")
+print(f"{'r (m)':>8} {'chord_0 (m)':>12} {'chord_opt (m)':>14} {'twist_0 (deg)':>14} {'twist_opt (deg)':>16} {'thickness (mm)':>14}")
 for ri, c0, ci, t0, ti in zip(r_stations, chord_guess, chord_opt, twist_guess, twist_opt):
-    print(f"{ri:8.3f} {c0:12.4f} {ci:14.4f} {t0:14.2f} {ti:16.2f}")
+    print(f"{ri:8.3f} {c0:12.4f} {ci:14.4f} {t0:14.2f} {ti:16.2f} {(ci*max_af_thickness*1000):14.4f}")
+tip_chord_opt = chord_opt[-1] + tip_frac * (chord_opt[-1] - chord_opt[-2])
+print(f"Tip (r = {radius} m): chord {tip_chord_opt:.4f} m, thickness {tip_chord_opt * max_af_thickness * 1000:.2f} mm")
 
 # ------------------------------------------------------------------
 # Display the optimized propeller (three-view wireframe)
@@ -258,7 +282,8 @@ airplane.export_XFLR5_xml(xflr5_xml_filename)
 # See export_blade_step()'s docstring in geometry.py for why this is
 # used instead of AeroSandbox's own export_cadquery_geometry().
 # ------------------------------------------------------------------
-export_blade_step(prop_result, step_filename, hub_top_z=hub_top_z, hub_length=hub_length)
+placement = export_blade_step(prop_result, step_filename, hub_top_z=hub_top_z,
+                              hub_length=hub_length, center_on_hub=CENTER_BLADE_ON_HUB)
 
 print(f"\nExported: {airfoil_dat_filename}, {xflr5_xml_filename}, {step_filename}")
 
@@ -284,6 +309,36 @@ export_prop_csv(
     rho=analysis.rho, mu=analysis.mu,
 )
 print(f"Exported: {prop_csv_filename}  (feed this to verify_xfoil.py for a real-XFoil performance check)")
+
+# ------------------------------------------------------------------
+# Design parameters for automating the CFD setup (e.g. a STAR-CCM+ macro
+# that swaps in the new STEP and sets the rotation rate).
+# ------------------------------------------------------------------
+export_cfd_params(cfd_params_filename, {
+    "step_file": os.path.abspath(step_filename),
+    "step_centered_on_hub": CENTER_BLADE_ON_HUB,
+    "blade_z_offset_m": 0.0 if CENTER_BLADE_ON_HUB else placement["dz"],  # still to apply in CAD
+    "blade_z_min_m": placement["z_min"] + placement["dz"],                 # on the hub, once placed
+    "blade_z_max_m": placement["z_max"] + placement["dz"],
+    "hub_radius_m": float(hub_radius),
+    "hub_top_z_m": float(hub_top_z),
+    "hub_length_m": float(hub_length),
+    "radius_m": float(radius),
+    "n_blades": int(n_blades),
+    "airfoil": airfoil,
+    "rpm": float(rpm_opt),
+    "omega_rad_s": float(rpm_opt * 2 * np.pi / 60),
+    "velocity_mps": float(velocity),
+    "rho": float(analysis.rho),
+    "mu": float(analysis.mu),
+    "cfd_corrections": CFD_CORRECTIONS_FILE if USE_CFD_CORRECTIONS else "none",
+    "predicted_thrust_N": float(sol.value(results["thrust"])),
+    "predicted_torque_Nm": float(sol.value(results["torque"])),
+    "predicted_power_W": float(sol.value(results["power"])),
+    "predicted_efficiency": float(sol.value(results["efficiency"])),
+    "design_csv": os.path.abspath(prop_csv_filename),
+})
+print(f"Exported: {cfd_params_filename}  (STEP file, rpm and hub placement for CFD setup)")
 
 if RUN_XFOIL_CHECK:
     from verify_xfoil import run_xfoil_check
