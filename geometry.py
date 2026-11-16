@@ -15,6 +15,7 @@ class Propeller:
         twist,
         airfoil: asb.Airfoil,
         n_blades=2,
+        round_sections=None,
     ):
 
         self.radius = radius
@@ -26,6 +27,11 @@ class Propeller:
         self.n_blades = n_blades
 
         self.n_stations = chord.shape[0] if hasattr(chord, "shape") else len(chord)
+
+        # True where a station is a round section (chord = its diameter)
+        # instead of the airfoil. All False = the airfoil everywhere.
+        self.round_sections = (np.zeros(self.n_stations, dtype=bool) if round_sections is None
+                               else np.asarray(round_sections, dtype=bool))
 
         # Station centers, not node endpoints. A station placed exactly at
         # r=radius would zero the Prandtl tip-loss factor there and
@@ -106,7 +112,7 @@ def export_qblade_bld(prop, filepath, name="Optimized_HPA_Prop",
 
 
 def export_prop_csv(filepath, r, dr, chord, twist, radius, hub_radius, n_blades,
-                     airfoil_name, rpm, velocity, rho, mu):
+                     airfoil_name, rpm, velocity, rho, mu, round_sections=None):
     """Export a propeller's per-station geometry and its operating point/
     environment to a plain CSV, so a standalone script (see
     verify_xfoil.py) can re-load the exact design without re-running the
@@ -131,9 +137,10 @@ def export_prop_csv(filepath, r, dr, chord, twist, radius, hub_radius, n_blades,
         for key, value in metadata:
             f.write(f"# {key},{value}\n")
         writer = csv.writer(f)
-        writer.writerow(["station", "r_m", "dr_m", "chord_m", "twist_deg"])
+        writer.writerow(["station", "r_m", "dr_m", "chord_m", "twist_deg", "round"])
         for i in range(len(r)):
-            writer.writerow([i, float(r[i]), float(dr[i]), float(chord[i]), float(twist[i])])
+            is_round = int(bool(round_sections[i])) if round_sections is not None else 0
+            writer.writerow([i, float(r[i]), float(dr[i]), float(chord[i]), float(twist[i]), is_round])
 
 
 def to_wing(prop):
@@ -209,12 +216,24 @@ def export_blade_step(prop, filepath, minimum_te_thickness=0.001, root_embed=0.0
     r = np.array(prop.r, dtype=float)
     chord = np.array(prop.chord, dtype=float)
     twist = np.array(prop.twist, dtype=float)
+    weight = np.where(prop.round_sections, 0.0, 1.0)  # 1 = airfoil, 0 = round section
     if prop.radius > r[-1]:
         frac = (prop.radius - r[-1]) / (r[-1] - r[-2])
         r = np.append(r, prop.radius)
         # Floor stops a steep taper extrapolating to a zero/negative chord.
         chord = np.append(chord, max(chord[-1] + frac * (chord[-1] - chord[-2]), 0.5 * chord[-1]))
         twist = np.append(twist, twist[-1] + frac * (twist[-1] - twist[-2]))
+        weight = np.append(weight, 1.0)
+
+    # Round root: a circle (diameter = the round station's chord), centred on
+    # the airfoil's thickest point at the first airfoil station (the spar),
+    # blending linearly into the airfoil by that station.
+    if prop.round_sections.any():
+        i_af = int(np.argmin(prop.round_sections))  # first airfoil station
+        x_t = np.linspace(0, 1, 501)
+        x_tmax = x_t[np.argmax(prop.airfoil.local_thickness(x_t))]
+        round_d = chord[i_af - 1]
+        round_centre = np.array([x_tmax, float(prop.airfoil.local_camber(x_tmax))]) * chord[i_af]
 
     # Loft through evenly spaced sections (uneven spacing makes the loft
     # overshoot), with chord/twist between stations from a monotone (PCHIP)
@@ -226,6 +245,7 @@ def export_blade_step(prop, filepath, minimum_te_thickness=0.001, root_embed=0.0
     r_loft = np.linspace(r[0], r[-1], int(round((r[-1] - r[0]) / step)) + 1)
     chord_loft = PchipInterpolator(r, chord)(r_loft)
     twist_loft = PchipInterpolator(r, twist)(r_loft)
+    weight_loft = np.interp(r_loft, r, weight)
     wing = asb.Wing(xsecs=[
         asb.WingXSec(xyz_le=[0, float(ri), 0], chord=float(ci), twist=float(ti), airfoil=prop.airfoil)
         for ri, ci, ti in zip(r_loft, chord_loft, twist_loft)
@@ -237,6 +257,15 @@ def export_blade_step(prop, filepath, minimum_te_thickness=0.001, root_embed=0.0
         af = xsec.airfoil
         if af.TE_thickness() < minimum_te_thickness:
             af = af.set_TE_thickness(thickness=minimum_te_thickness)
+        points = af.coordinates * xsec.chord
+        w = weight_loft[i]
+        if w < 1:
+            # Each airfoil point maps to the circle point at the same fraction
+            # of the perimeter, so every section keeps the same point order.
+            seg = np.linalg.norm(np.diff(np.vstack([af.coordinates, af.coordinates[:1]]), axis=0), axis=1)
+            theta = 2 * np.pi * np.concatenate([[0], np.cumsum(seg[:-1])]) / np.sum(seg)
+            circle = round_centre + 0.5 * round_d * np.column_stack([np.cos(theta), np.sin(theta)])
+            points = w * points + (1 - w) * circle
 
         # Normal is -span (-y), so a positive extrude() runs toward the hub.
         workplane = cq.Workplane(
@@ -247,14 +276,14 @@ def export_blade_step(prop, filepath, minimum_te_thickness=0.001, root_embed=0.0
             )
         )
         return workplane.spline(
-            listOfXYTuple=[tuple(xy * xsec.chord) for xy in af.coordinates]
+            listOfXYTuple=[tuple(xy) for xy in points]
         ).close()
 
     # Smooth loft, built directly rather than via CadQuery's loft(): that
     # leaves OpenCASCADE's wire-compatibility check on, which re-matches
     # points between the twisted sections and makes the surface wobble
     # (chord errors of ~15 mm near the tip). Every section is the same
-    # airfoil point list in the same order, so they're already compatible.
+    # point list in the same order, so they're already compatible.
     from OCP.BRepOffsetAPI import BRepOffsetAPI_ThruSections
     builder = BRepOffsetAPI_ThruSections(True, False, 1e-6)  # solid, smooth
     for i in range(len(wing.xsecs)):
@@ -265,7 +294,8 @@ def export_blade_step(prop, filepath, minimum_te_thickness=0.001, root_embed=0.0
 
     root_ext = float(prop.r[0]) - (prop.hub_radius - root_embed)
     if root_ext > 0:
-        loft = loft.union(section(0).extrude(root_ext))
+        # Small fuzzy tolerance: without it the union fails on a round root.
+        loft = loft.union(section(0).extrude(root_ext), tol=1e-5)
 
     solids = loft.solids().vals()
     if len(solids) != 1 or not loft.val().isValid():
@@ -500,6 +530,7 @@ def load_prop_csv(filepath):
     dr = np.array([float(row["dr_m"]) for row in rows])
     chord = np.array([float(row["chord_m"]) for row in rows])
     twist = np.array([float(row["twist_deg"]) for row in rows])
+    round_sections = [row.get("round") == "1" for row in rows]  # column absent in older CSVs
 
     prop = Propeller(
         radius=float(metadata["radius_m"]),
@@ -508,6 +539,7 @@ def load_prop_csv(filepath):
         twist=twist,
         airfoil=metadata["airfoil"],
         n_blades=int(metadata["n_blades"]),
+        round_sections=round_sections,
     )
     # Replace the default-regridded stations with the ones actually analyzed.
     prop.r = r

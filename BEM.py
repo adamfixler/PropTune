@@ -16,6 +16,7 @@ class BEMAnalysis:
         induction_guess=(0.02, 0.01),
         cl_offset=None,
         cd_offset=None,
+        cd_round=1.17,
     ):
         self.prop = propeller
         self.rpm = rpm
@@ -34,13 +35,19 @@ class BEMAnalysis:
         self.cl_offset = np.zeros(n) if cl_offset is None else cl_offset
         self.cd_offset = np.zeros(n) if cd_offset is None else cd_offset
 
+        # Round sections (propeller.round_sections): no lift, drag
+        # coefficient cd_round on the diameter (= that station's chord),
+        # ~1.17 for a cylinder in crossflow at these Reynolds numbers.
+        self.cd_round = cd_round
+
         # Built once; reused for every station and every design iterate.
         self._induction_solver = self._build_induction_solver()
 
     def _build_induction_solver(self):
         """CasADi rootfinder that solves for [a, a'] at a single blade
-        station via Newton's method, given [r, chord, beta, Omega, dCl, dCd]
-        (dCl/dCd: additive Cl/Cd corrections, see __init__).
+        station via Newton's method, given [r, chord, beta, Omega, dCl, dCd, w]
+        (dCl/dCd: additive Cl/Cd corrections; w: 1 airfoil, 0 round section;
+        see __init__).
 
         Solving via a rootfinder (rather than treating a/a' as free
         optimizer variables tied by an equality constraint) guarantees the
@@ -57,8 +64,8 @@ class BEMAnalysis:
 
         z = ca.MX.sym("z", 2)            # [a, ap]
         a_s, ap_s = z[0], z[1]
-        p = ca.MX.sym("p", 6)            # [r, chord, beta(rad), Omega, dCl, dCd]
-        r_s, c_s, beta_s, Omega, dcl_s, dcd_s = p[0], p[1], p[2], p[3], p[4], p[5]
+        p = ca.MX.sym("p", 7)            # [r, chord, beta(rad), Omega, dCl, dCd, w]
+        r_s, c_s, beta_s, Omega, dcl_s, dcd_s, w_s = p[0], p[1], p[2], p[3], p[4], p[5], p[6]
 
         Vax = V * (1 + a_s)
         Vtan = Omega * r_s * (1 - ap_s)
@@ -70,7 +77,9 @@ class BEMAnalysis:
         aero = airfoil.get_aero_from_neuralfoil(
             alpha=np.degrees(alpha), Re=Re, mach=W / 340,
         )
-        Cl, Cd = aero["CL"] + dcl_s, aero["CD"] + dcd_s
+        # w = 1: airfoil; w = 0: round section.
+        Cl = w_s * (aero["CL"] + dcl_s)
+        Cd = w_s * (aero["CD"] + dcd_s) + (1 - w_s) * self.cd_round
 
         f_tip = (B / 2) * (R - r_s) / (r_s * np.sin(phi))
         f_tip = np.maximum(f_tip, 1e-6)
@@ -112,9 +121,10 @@ class BEMAnalysis:
             beta = np.radians(self.prop.twist[i])  # degrees -> radians
 
             dcl, dcd = self.cl_offset[i], self.cd_offset[i]
+            w = 0.0 if self.prop.round_sections[i] else 1.0
 
             z_sol = self._induction_solver(
-                list(self.induction_guess), ca.vertcat(r, c, beta, self.omega, dcl, dcd)
+                list(self.induction_guess), ca.vertcat(r, c, beta, self.omega, dcl, dcd, w)
             )
             a_i, ap_i = z_sol[0], z_sol[1]
 
@@ -130,8 +140,8 @@ class BEMAnalysis:
                 Re=Re,
                 mach=W / 340,
             )
-            Cl = aero["CL"] + dcl
-            Cd = aero["CD"] + dcd
+            Cl = w * (aero["CL"] + dcl)
+            Cd = w * (aero["CD"] + dcd) + (1 - w) * self.cd_round
             analysis_confidence = aero["analysis_confidence"]
 
             q = 0.5 * self.rho * W ** 2

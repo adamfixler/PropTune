@@ -55,7 +55,7 @@ CENTER_BLADE_ON_HUB = True
 # rpm is a free design variable, optimized jointly with chord/twist. Bounds
 # are a sane range for a human-powered aircraft (Daedalus cruised at ~108
 # rpm). rpm_guess also seeds the from-scratch twist calculation below.
-chord_min, chord_max = 0.01, 0.35   # m
+chord_min, chord_max = 0.01, 0.20   # m -- chord_max: maximum chord along the entire span
 twist_min, twist_max = -5, 90       # deg
 rpm_guess = 110
 rpm_min, rpm_max = 60, 220
@@ -79,6 +79,9 @@ max_twist_rate = 120   # deg of twist change per m of span
 # --- Minimum airfoil thickness (max t/c x chord) ---------------------------------
 min_root_thickness = 0.025      # m -- at the root station (carried into the hub by the export)
 min_thickness = 0.005          # m -- everywhere else: every station and the exported tip
+# Where the airfoil at chord_max is thinner than required, the station is a
+# round section instead (diameter = the required thickness), blending into
+# the airfoil by the next station.
 
 
 # --- CFD corrections ------------------------------------------------------------------
@@ -148,6 +151,14 @@ else:
     phi0 = np.arctan2(velocity, Omega_seed * r_stations)
     twist_guess = np.degrees(phi0) + 4.0
 
+# Round sections: stations where the airfoil can't reach the required
+# thickness within chord_max.
+max_af_thickness = asb.Airfoil(airfoil).max_thickness()
+t_required = np.full(N, min_thickness)
+t_required[0] = min_root_thickness
+round_sections = chord_max * max_af_thickness < t_required
+chord_guess = np.where(round_sections, t_required, np.minimum(chord_guess, chord_max))
+
 opti = asb.Opti()
 
 chord = opti.variable(init_guess=chord_guess, lower_bound=chord_min, upper_bound=chord_max)
@@ -155,7 +166,7 @@ twist = opti.variable(init_guess=twist_guess, lower_bound=twist_min, upper_bound
 rpm = opti.variable(init_guess=rpm_guess, lower_bound=rpm_min, upper_bound=rpm_max)
 
 prop = Propeller(radius=radius, hub_radius=hub_radius, chord=chord, twist=twist,
-                  airfoil=airfoil, n_blades=n_blades)
+                  airfoil=airfoil, n_blades=n_blades, round_sections=round_sections)
 
 # Propeller.__init__ assumes uniform station spacing; override with the
 # actual station radii/segment widths so chord/twist are optimized at the
@@ -186,7 +197,9 @@ results = analysis.run()
 opti.subject_to(results["thrust"] == T_required)
 opti.subject_to(results["efficiency"] <= 1.0)  # cheap physical sanity net
 
-for sec in results["sections"]:
+for sec, is_round in zip(results["sections"], round_sections):
+    if is_round:  # no airfoil there: alpha and NeuralFoil confidence don't apply
+        continue
     opti.subject_to(sec["alpha_deg"] <= alpha_max_deg)
     opti.subject_to(sec["alpha_deg"] >= alpha_min_deg)
     opti.subject_to(sec["analysis_confidence"] >= min_analysis_confidence)
@@ -201,7 +214,9 @@ chord_scale = max_chord if not USE_BEM_FILE else np.max(chord_guess)
 # normalized by each quantity's characteristic scale and by dr itself so
 # the result is independent of station count N.
 dr_seg = r_stations[1:] - r_stations[:-1]
-d_chord_dr = (chord[1:] - chord[:-1]) / dr_seg / chord_scale
+# Chord changes between round sections and the airfoil are left free.
+af_seg = ~(round_sections[1:] | round_sections[:-1])
+d_chord_dr = (chord[1:] - chord[:-1]) / dr_seg / chord_scale * af_seg
 d_twist_dr = (twist[1:] - twist[:-1]) / dr_seg / twist_scale
 smoothness_penalty = np.sum((d_chord_dr ** 2 + d_twist_dr ** 2) * dr_seg)
 
@@ -209,22 +224,25 @@ smoothness_penalty = np.sum((d_chord_dr ** 2 + d_twist_dr ** 2) * dr_seg)
 # limit, on top of the soft penalty above.
 chord_rate = (chord[1:] - chord[:-1]) / dr_seg
 twist_rate = (twist[1:] - twist[:-1]) / dr_seg
-opti.subject_to(chord_rate <= max_chord_rate)
-opti.subject_to(chord_rate >= -max_chord_rate)
+for k in np.flatnonzero(af_seg):
+    opti.subject_to(chord_rate[k] <= max_chord_rate)
+    opti.subject_to(chord_rate[k] >= -max_chord_rate)
 opti.subject_to(twist_rate <= max_twist_rate)
 opti.subject_to(twist_rate >= -max_twist_rate)
 
 # Minimum thickness: at the root, at every station, and at the tip.
-max_af_thickness = asb.Airfoil(airfoil).max_thickness()
-root_thickness = chord[0] * max_af_thickness
+# Round sections are fixed at the required thickness (their diameter).
 # The STEP export extends the blade from the last station out to r = radius,
 # continuing the taper of the last two stations -- constrain that actual tip.
 tip_frac = (radius - r_stations[-1]) / (r_stations[-1] - r_stations[-2])
 tip_chord = chord[-1] + tip_frac * (chord[-1] - chord[-2])
 tip_thickness = tip_chord * max_af_thickness
 
-opti.subject_to(root_thickness >= min_root_thickness)
-opti.subject_to(chord * max_af_thickness >= min_thickness)
+for i in range(N):
+    if round_sections[i]:
+        opti.subject_to(chord[i] == t_required[i])
+    else:
+        opti.subject_to(chord[i] * max_af_thickness >= t_required[i])
 opti.subject_to(tip_thickness >= min_thickness)
 
 opti.minimize(-results["efficiency"] + smoothness_weight * smoothness_penalty)
@@ -243,8 +261,9 @@ print(f"Torque     : {sol.value(results['torque']):.2f} Nm")
 print(f"Power      : {sol.value(results['power']):.2f} W")
 print()
 print(f"{'r (m)':>8} {'chord_0 (m)':>12} {'chord_opt (m)':>14} {'twist_0 (deg)':>14} {'twist_opt (deg)':>16} {'thickness (mm)':>14}")
-for ri, c0, ci, t0, ti in zip(r_stations, chord_guess, chord_opt, twist_guess, twist_opt):
-    print(f"{ri:8.3f} {c0:12.4f} {ci:14.4f} {t0:14.2f} {ti:16.2f} {(ci*max_af_thickness*1000):14.4f}")
+for ri, c0, ci, t0, ti, is_round in zip(r_stations, chord_guess, chord_opt, twist_guess, twist_opt, round_sections):
+    t_mm = ci * 1000 if is_round else ci * max_af_thickness * 1000
+    print(f"{ri:8.3f} {c0:12.4f} {ci:14.4f} {t0:14.2f} {ti:16.2f} {t_mm:14.4f}" + ("  round" if is_round else ""))
 tip_chord_opt = chord_opt[-1] + tip_frac * (chord_opt[-1] - chord_opt[-2])
 print(f"Tip (r = {radius} m): chord {tip_chord_opt:.4f} m, thickness {tip_chord_opt * max_af_thickness * 1000:.2f} mm")
 
@@ -258,6 +277,7 @@ prop_result = Propeller(
     twist=twist_opt,
     airfoil=airfoil,
     n_blades=n_blades,
+    round_sections=round_sections,
 )
 display_rotor(prop_result)
 
@@ -306,7 +326,7 @@ export_prop_csv(
     r=r_stations, dr=dr, chord=chord_opt, twist=twist_opt,
     radius=radius, hub_radius=hub_radius, n_blades=n_blades,
     airfoil_name=airfoil, rpm=rpm_opt, velocity=velocity,
-    rho=analysis.rho, mu=analysis.mu,
+    rho=analysis.rho, mu=analysis.mu, round_sections=round_sections,
 )
 print(f"Exported: {prop_csv_filename}  (feed this to verify_xfoil.py for a real-XFoil performance check)")
 
